@@ -1,3 +1,10 @@
+// Module declarations
+pub mod audio;
+pub mod transcription;
+pub mod hotkey;
+pub mod clipboard;
+pub mod config;
+
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
 fn greet(name: &str) -> String {
