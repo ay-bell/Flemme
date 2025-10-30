@@ -1,0 +1,180 @@
+# Flemme - Cargo.toml Template
+# Backend Rust - Dépendances et configuration
+
+[package]
+name = "flemme"
+version = "0.1.0"
+description = "Application de transcription vocale instantanée avec whisper.cpp"
+authors = ["Aymeric Bellavoine"]
+license = "MIT"
+repository = "https://github.com/[YOUR_USERNAME]/flemme"
+edition = "2021"
+
+# Optimisations pour release
+[profile.release]
+opt-level = 3           # Optimisations maximales
+lto = true              # Link-Time Optimization
+codegen-units = 1       # Meilleure optimisation (compilation plus lente)
+strip = true            # Supprimer les symboles de debug (exe plus petit)
+
+[build-dependencies]
+tauri-build = { version = "2.0", features = [] }
+
+[dependencies]
+# ============================================================
+# TAURI - Framework principal
+# ============================================================
+tauri = { version = "2.0", features = [
+    "protocol-asset",           # Servir assets locaux
+    "tray-icon",                # System tray icon
+    "image-png",                # Support PNG pour icônes
+] }
+tauri-plugin-shell = "2.0"      # Exécuter commandes shell
+tauri-plugin-fs = "2.0"         # Accès filesystem
+
+# ============================================================
+# HOTKEYS - Raccourcis clavier globaux
+# ============================================================
+tauri-plugin-global-shortcut = "2.0"
+
+# ============================================================
+# AUDIO - Capture audio depuis micro
+# ============================================================
+cpal = "0.15"                   # Audio I/O cross-platform
+# Alternative : rodio (plus haut niveau mais moins flexible)
+
+# ============================================================
+# TRANSCRIPTION - whisper.cpp bindings
+# ============================================================
+# Option A : whisper-rs (bindings communautaires)
+whisper-rs = { version = "0.10", features = ["cuda"] }  # Retirer "cuda" si pas de GPU
+# Option B : Bindings FFI custom si besoin contrôle fin
+
+# ============================================================
+# CLIPBOARD - Copier/coller texte
+# ============================================================
+arboard = "3.3"                 # Clipboard cross-platform
+enigo = "0.2"                   # Simulation clavier (Ctrl+V)
+
+# ============================================================
+# CONFIG - Gestion configuration
+# ============================================================
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"                    # Lecture/écriture TOML
+
+# ============================================================
+# HTTP - Download modèles Whisper
+# ============================================================
+reqwest = { version = "0.11", features = ["stream", "rustls-tls"] }
+tokio = { version = "1.35", features = ["full"] }
+
+# ============================================================
+# LOGGING - Système de logs
+# ============================================================
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# ============================================================
+# UTILS - Utilitaires divers
+# ============================================================
+chrono = "0.4"                  # Manipulation dates/heures
+directories = "5.0"             # Chemins système (%APPDATA%, etc.)
+thiserror = "1.0"               # Macro pour erreurs custom
+
+# ============================================================
+# OPTIONNEL - VAD (Voice Activity Detection)
+# ============================================================
+# onnxruntime = "0.0.14"        # Runtime ONNX pour Silero VAD
+# ndarray = "0.15"              # Arrays N-dimensionnels
+
+# ============================================================
+# DEV DEPENDENCIES - Tests et développement
+# ============================================================
+[dev-dependencies]
+criterion = "0.5"               # Benchmarking
+tempfile = "3.8"                # Fichiers temporaires pour tests
+
+# ============================================================
+# FEATURES - Flags de compilation conditionnels
+# ============================================================
+[features]
+default = ["cpu"]               # Par défaut : CPU mode
+
+# Features pour device
+cpu = []                        # Mode CPU uniquement
+cuda = ["whisper-rs/cuda"]      # Mode CUDA (NVIDIA GPU)
+# metal = []                    # Mode Metal (macOS GPU) - À implémenter
+
+# Features optionnelles
+vad = []                        # Activer VAD (Voice Activity Detection)
+debug-logs = []                 # Logs détaillés pour debug
+
+# ============================================================
+# NOTES D'IMPLÉMENTATION
+# ============================================================
+
+# 1. whisper-rs compilation :
+#    - Windows : Nécessite Visual Studio Build Tools (MSVC)
+#    - Peut être long à compiler (5-10 min première fois)
+#    - Si problèmes : Vérifier que whisper.cpp est bien linké
+#
+# 2. cpal permissions :
+#    - Windows : Vérifier paramètres confidentialité micro
+#    - L'app doit avoir accès au microphone
+#
+# 3. Features CUDA :
+#    - Nécessite CUDA Toolkit installé
+#    - Linker doit trouver cudart.lib
+#    - Ajouter à PATH : C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.x\bin
+#
+# 4. Optimisations build :
+#    - `cargo build --release` : ~5-10 min
+#    - `cargo build --release --jobs 1` : Plus lent mais moins de RAM
+#
+# 5. Taille exécutable :
+#    - Sans optimisations : ~50 MB
+#    - Avec strip + LTO : ~8-10 MB
+#    - Upx compression possible : ~4-5 MB (mais plus lent au démarrage)
+
+# ============================================================
+# COMMANDES UTILES
+# ============================================================
+
+# Build dev (debug, rapide)
+# cargo build
+
+# Build release (optimisé)
+# cargo build --release
+
+# Build avec feature CUDA
+# cargo build --release --features cuda
+
+# Run tests
+# cargo test
+
+# Run benchmarks
+# cargo bench
+
+# Linter
+# cargo clippy
+
+# Formatter
+# cargo fmt
+
+# Audit de sécurité
+# cargo audit
+
+# Mettre à jour dépendances
+# cargo update
+
+# ============================================================
+# DÉPENDANCES OPTIONNELLES FUTURES
+# ============================================================
+
+# Pour Phase 2+ (Features avancées) :
+# - notify-rust : Notifications système natives
+# - keyring : Stocker clés API de façon sécurisée
+# - sqlx : Base de données locale (historique transcriptions)
+# - zip : Compression exports
+# - image : Manipulation icônes

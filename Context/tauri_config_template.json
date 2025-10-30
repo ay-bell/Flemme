@@ -1,0 +1,341 @@
+{
+  "$schema": "https://schema.tauri.app/config/2.0",
+  
+  "productName": "Flemme",
+  "version": "0.1.0",
+  "identifier": "com.flemme.app",
+  
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": [
+      "icons/icon.ico",
+      "icons/icon.png"
+    ],
+    
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": ""
+    },
+    
+    "nsis": {
+      "languages": ["French", "English"],
+      "displayLanguageSelector": true,
+      "installerIcon": "icons/icon.ico",
+      "installMode": "perUser",
+      "license": "LICENSE.txt",
+      "headerImage": "icons/header.bmp",
+      "sidebarImage": "icons/sidebar.bmp"
+    }
+  },
+  
+  "app": {
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:",
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["**"]
+      }
+    },
+    
+    "windows": [
+      {
+        "title": "Flemme - Transcription Vocale",
+        "label": "main",
+        "width": 800,
+        "height": 600,
+        "minWidth": 600,
+        "minHeight": 400,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": true,
+        "transparent": false,
+        "skipTaskbar": false,
+        "center": true,
+        "visible": false,
+        "hiddenTitle": false,
+        "titleBarStyle": "Visible",
+        "alwaysOnTop": false,
+        "acceptFirstMouse": false,
+        "fileDropEnabled": false
+      }
+    ],
+    
+    "trayIcon": {
+      "id": "main-tray",
+      "iconPath": "icons/icon.ico",
+      "iconAsTemplate": false,
+      "menuOnLeftClick": false,
+      "tooltip": "Flemme - Transcription Vocale"
+    }
+  },
+  
+  "plugins": {
+    "globalShortcut": {
+      "all": true
+    },
+    
+    "fs": {
+      "scope": [
+        "$APPDATA/Flemme/**",
+        "$HOME/.flemme/**",
+        "$TEMP/**"
+      ]
+    },
+    
+    "shell": {
+      "open": ".*",
+      "scope": []
+    }
+  }
+}
+
+/*
+ * NOTES DÉTAILLÉES SUR LA CONFIGURATION
+ * =====================================
+ */
+
+/*
+ * 1. BUNDLE CONFIGURATION
+ * -----------------------
+ * 
+ * targets: ["nsis"]
+ *   - NSIS : Installeur Windows (recommandé)
+ *   - Alternatives : "msi" (WiX), "portable" (zip)
+ * 
+ * icon: Configuration des icônes
+ *   - .ico : Windows (16x16, 32x32, 64x64, 128x128, 256x256)
+ *   - .png : Général (pour tray icon, etc.)
+ * 
+ * nsis.installMode: "perUser"
+ *   - "perUser" : Installation dans %LOCALAPPDATA% (pas besoin admin)
+ *   - "perMachine" : Installation dans Program Files (nécessite admin)
+ *   - Pour Flemme, "perUser" est optimal
+ */
+
+/*
+ * 2. FENÊTRE PRINCIPALE
+ * ---------------------
+ * 
+ * visible: false
+ *   - Au démarrage, la fenêtre est invisible
+ *   - Seul le tray icon est visible
+ *   - La fenêtre s'affiche uniquement pour les settings
+ * 
+ * skipTaskbar: false
+ *   - Si true : N'apparaît pas dans la barre des tâches
+ *   - Pour Flemme : false car on veut pouvoir Alt+Tab vers les settings
+ * 
+ * titleBarStyle: "Visible"
+ *   - Barre de titre Windows standard
+ *   - Alternative : "Overlay" pour custom title bar
+ */
+
+/*
+ * 3. SYSTEM TRAY
+ * --------------
+ * 
+ * menuOnLeftClick: false
+ *   - Clic gauche : N'affiche PAS le menu
+ *   - Clic droit : Affiche le menu (comportement Windows standard)
+ *   - Pour Flemme : false (menu seulement clic droit)
+ * 
+ * tooltip: Texte au survol du tray icon
+ */
+
+/*
+ * 4. SÉCURITÉ (CSP - Content Security Policy)
+ * -------------------------------------------
+ * 
+ * default-src 'self'
+ *   - Autorise uniquement les ressources locales (pas de CDN externe)
+ * 
+ * style-src 'self' 'unsafe-inline'
+ *   - 'unsafe-inline' : Nécessaire pour Tailwind (inline styles)
+ * 
+ * font-src 'self' data:
+ *   - Autorise fonts locales et data: URIs
+ * 
+ * IMPORTANT : Pas de 'unsafe-eval' → Pas d'exécution JS dynamique
+ */
+
+/*
+ * 5. FILESYSTEM PERMISSIONS
+ * -------------------------
+ * 
+ * $APPDATA/Flemme/**
+ *   - Accès complet au dossier de l'app dans %APPDATA%
+ *   - C:\Users\[USER]\AppData\Roaming\Flemme\
+ *   - Contient : config.toml, models/, logs/
+ * 
+ * $TEMP/**
+ *   - Accès aux fichiers temporaires
+ *   - Pour sauvegarder l'audio avant transcription
+ */
+
+/*
+ * 6. GLOBAL SHORTCUTS PLUGIN
+ * ---------------------------
+ * 
+ * all: true
+ *   - Autorise tous les hotkeys globaux
+ *   - Nécessaire pour Ctrl+Space, etc.
+ * 
+ * IMPORTANT : Sur certains systèmes, nécessite privilèges admin
+ *   - Solution : Lancer l'app en mode admin
+ *   - Ou utiliser des hotkeys moins communs
+ */
+
+/*
+ * 7. BUILD PROCESS
+ * ----------------
+ * 
+ * Development :
+ *   - beforeDevCommand: "npm run dev"
+ *   - Lance Vite dev server (hot reload)
+ *   - devUrl: http://localhost:1420
+ * 
+ * Production :
+ *   - beforeBuildCommand: "npm run build"
+ *   - Build frontend optimisé dans dist/
+ *   - Tauri empaquette tout dans l'exe final
+ */
+
+/*
+ * 8. IDENTIFIER
+ * -------------
+ * 
+ * identifier: "com.flemme.app"
+ *   - Format : reverse domain (com.company.app)
+ *   - Utilisé par Windows pour identifier l'app
+ *   - Important pour permissions, registre, etc.
+ */
+
+/*
+ * 9. OPTIMISATIONS RECOMMANDÉES
+ * ------------------------------
+ * 
+ * Pour réduire la taille de l'installeur :
+ * 1. Activer strip et LTO dans Cargo.toml
+ * 2. Utiliser NSIS au lieu de MSI (plus compact)
+ * 3. Compresser avec UPX (optionnel) :
+ *    "nsis": {
+ *      "compression": "lzma"
+ *    }
+ */
+
+/*
+ * 10. PERMISSIONS WINDOWS
+ * -----------------------
+ * 
+ * L'app nécessite les permissions suivantes :
+ * - Microphone : Enregistrement audio
+ * - Clipboard : Copier/coller texte
+ * - Keyboard : Hotkeys globaux
+ * - Filesystem : Sauvegarder config et modèles
+ * 
+ * Ces permissions sont demandées automatiquement par Windows
+ * lors du premier lancement.
+ */
+
+/*
+ * 11. CONFIGURATION MULTI-FENÊTRES (FUTUR)
+ * -----------------------------------------
+ * 
+ * Pour ajouter d'autres fenêtres (ex: barre flottante) :
+ * 
+ * "windows": [
+ *   {
+ *     "title": "Main",
+ *     "label": "main",
+ *     ...
+ *   },
+ *   {
+ *     "title": "Recording Bar",
+ *     "label": "recording-bar",
+ *     "width": 300,
+ *     "height": 80,
+ *     "decorations": false,
+ *     "alwaysOnTop": true,
+ *     "transparent": true,
+ *     "visible": false
+ *   }
+ * ]
+ */
+
+/*
+ * 12. LOCALISATION
+ * ----------------
+ * 
+ * Pour supporter FR/EN :
+ * 1. Ajouter fichiers de traduction dans src/locales/
+ * 2. Utiliser i18n (ex: svelte-i18n)
+ * 3. Détecter langue système :
+ *    - Windows : via registry (HKCU\Control Panel\International)
+ *    - Rust : crate "sys-locale"
+ */
+
+/*
+ * 13. MISE À JOUR AUTOMATIQUE (FUTUR)
+ * -----------------------------------
+ * 
+ * Tauri supporte les mises à jour automatiques :
+ * 
+ * "updater": {
+ *   "active": true,
+ *   "endpoints": [
+ *     "https://releases.flemme.app/{{target}}/{{current_version}}"
+ *   ],
+ *   "dialog": true,
+ *   "pubkey": "YOUR_PUBLIC_KEY"
+ * }
+ * 
+ * Nécessite :
+ * - Serveur pour héberger les releases
+ * - Signature des releases avec clé privée
+ */
+
+/*
+ * 14. COMMANDES UTILES
+ * --------------------
+ * 
+ * # Development
+ * npm run tauri dev
+ * 
+ * # Build production
+ * npm run tauri build
+ * 
+ * # Build avec logs détaillés
+ * npm run tauri build -- --verbose
+ * 
+ * # Build sans bundler (juste l'exe)
+ * npm run tauri build -- --bundles none
+ * 
+ * # Vérifier config
+ * npm run tauri info
+ */
+
+/*
+ * 15. TROUBLESHOOTING
+ * -------------------
+ * 
+ * Problème : "Failed to register hotkey"
+ * → Solution : Lancer en mode admin ou changer le hotkey
+ * 
+ * Problème : "Microphone permission denied"
+ * → Solution : Paramètres Windows > Confidentialité > Microphone
+ * 
+ * Problème : "Failed to load icon"
+ * → Solution : Vérifier chemins des icônes dans icons/
+ * 
+ * Problème : "CSP violation"
+ * → Solution : Ajouter source manquante dans la CSP
+ */

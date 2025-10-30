@@ -1,0 +1,289 @@
+# Flemme - Structure du Projet
+
+```
+Flemme/
+│
+├── .git/                           # Git repository
+├── .gitignore                      # Fichiers à ignorer
+├── README.md                       # Documentation utilisateur
+├── ARCHITECTURE.md                 # Architecture technique (ce fichier)
+├── SPRINT_0_POC.md                 # Plan du Sprint 0
+├── SETUP_GUIDE.md                  # Guide setup pour Claude Code
+│
+├── src-tauri/                      # Backend Rust (Tauri)
+│   ├── Cargo.toml                  # Dépendances Rust
+│   ├── Cargo.lock                  # Lock file dépendances
+│   ├── build.rs                    # Build script (linking whisper.cpp)
+│   ├── tauri.conf.json             # Configuration Tauri
+│   │
+│   ├── icons/                      # Icônes de l'application
+│   │   ├── icon.ico                # Windows
+│   │   ├── icon.png                # Général
+│   │   └── ...
+│   │
+│   ├── src/
+│   │   ├── main.rs                 # Point d'entrée principal
+│   │   ├── commands.rs             # Tauri commands (API frontend)
+│   │   ├── utils.rs                # Utilitaires divers
+│   │   │
+│   │   ├── audio/
+│   │   │   ├── mod.rs              # Module audio
+│   │   │   ├── recorder.rs         # Enregistrement audio (cpal)
+│   │   │   └── vad.rs              # Voice Activity Detection
+│   │   │
+│   │   ├── transcription/
+│   │   │   ├── mod.rs              # Module transcription
+│   │   │   ├── engine.rs           # Wrapper whisper.cpp
+│   │   │   ├── models.rs           # Gestion modèles (cache local)
+│   │   │   └── downloader.rs       # Download manager modèles
+│   │   │
+│   │   ├── hotkey/
+│   │   │   ├── mod.rs              # Module hotkeys
+│   │   │   └── listener.rs         # Listener global shortcuts
+│   │   │
+│   │   ├── clipboard/
+│   │   │   ├── mod.rs              # Module clipboard
+│   │   │   └── manager.rs          # Copy + auto-paste
+│   │   │
+│   │   └── config/
+│   │       ├── mod.rs              # Module config
+│   │       └── settings.rs         # Chargement/sauvegarde config
+│   │
+│   └── target/                     # Build artifacts (gitignored)
+│       ├── debug/
+│       └── release/
+│
+├── src/                            # Frontend Svelte
+│   ├── lib/
+│   │   ├── components/
+│   │   │   ├── ui/                 # shadcn-svelte components
+│   │   │   │   ├── button/
+│   │   │   │   ├── input/
+│   │   │   │   ├── select/
+│   │   │   │   ├── switch/
+│   │   │   │   ├── slider/
+│   │   │   │   ├── dialog/
+│   │   │   │   └── ...
+│   │   │   │
+│   │   │   ├── Settings.svelte     # Page de configuration
+│   │   │   ├── RecordingBar.svelte # Barre flottante enregistrement
+│   │   │   └── FirstLaunch.svelte  # Wizard première utilisation
+│   │   │
+│   │   ├── stores/
+│   │   │   ├── config.ts           # Store config application
+│   │   │   └── recording.ts        # Store état enregistrement
+│   │   │
+│   │   └── api/
+│   │       └── tauri.ts            # Wrapper API Tauri commands
+│   │
+│   ├── App.svelte                  # Composant racine
+│   ├── main.ts                     # Point d'entrée frontend
+│   └── app.css                     # Styles globaux (Tailwind)
+│
+├── public/                         # Assets statiques
+│   └── favicon.ico
+│
+├── node_modules/                   # Dépendances npm (gitignored)
+│
+├── package.json                    # Dépendances npm + scripts
+├── package-lock.json               # Lock file npm
+├── vite.config.ts                  # Configuration Vite
+├── tailwind.config.js              # Configuration Tailwind CSS
+├── tsconfig.json                   # Configuration TypeScript
+├── svelte.config.js                # Configuration Svelte
+└── components.json                 # Configuration shadcn-svelte
+```
+
+---
+
+## Détails des dossiers principaux
+
+### `src-tauri/` - Backend Rust
+
+**Responsabilité :** Toute la logique métier de l'application
+- Enregistrement audio
+- Transcription via whisper.cpp
+- Hotkeys globaux
+- Clipboard management
+- Gestion de la configuration
+
+**Fichiers clés :**
+- `main.rs` : Point d'entrée, setup Tauri, enregistrement hotkeys
+- `commands.rs` : API exposée au frontend (invoke depuis JS)
+- `Cargo.toml` : Dépendances Rust (cpal, whisper-rs, arboard, etc.)
+- `tauri.conf.json` : Config Tauri (window, permissions, installeur)
+
+---
+
+### `src/` - Frontend Svelte
+
+**Responsabilité :** Interface utilisateur
+- Page de settings
+- Barre d'enregistrement flottante
+- Wizard première utilisation
+- Notifications visuelles
+
+**Fichiers clés :**
+- `App.svelte` : Composant racine
+- `main.ts` : Point d'entrée, initialisation
+- `lib/components/Settings.svelte` : Page de configuration
+- `lib/stores/config.ts` : State management config
+
+---
+
+### `src/lib/components/ui/` - shadcn-svelte
+
+**Responsabilité :** Composants UI réutilisables
+- Button, Input, Select, Switch, Slider, Dialog, etc.
+- Styles Tailwind intégrés
+- Accessible (ARIA, keyboard navigation)
+
+**Source :** Composants copiés depuis shadcn-svelte CLI
+```bash
+npx shadcn-svelte@latest add button
+npx shadcn-svelte@latest add input
+npx shadcn-svelte@latest add select
+# etc.
+```
+
+---
+
+## Fichiers de configuration
+
+### `Cargo.toml` (Backend Rust)
+
+Gère les dépendances Rust :
+- `tauri` : Framework principal
+- `tauri-plugin-global-shortcut` : Hotkeys globaux
+- `cpal` : Audio capture
+- `whisper-rs` : Bindings whisper.cpp
+- `arboard` : Clipboard
+- `enigo` : Simulation clavier
+- `serde` : Sérialisation config
+- `tokio` : Runtime async
+- `tracing` : Logging
+
+### `tauri.conf.json` (Config Tauri)
+
+Configure l'application Tauri :
+- Nom, version, description
+- Fenêtre (dimensions, titre, resizable)
+- Permissions (filesystem, clipboard, etc.)
+- Build settings (cible, ressources)
+- Installeur (NSIS, WiX)
+
+### `package.json` (Frontend npm)
+
+Gère les dépendances npm :
+- `svelte` : Framework UI
+- `vite` : Build tool
+- `tailwindcss` : CSS utility-first
+- `@tauri-apps/api` : API Tauri pour JS
+- `shadcn-svelte` : Composants UI
+
+### `vite.config.ts` (Build frontend)
+
+Configuration Vite :
+- Svelte plugin
+- Alias de paths
+- Optimisations build
+- Dev server settings
+
+### `tailwind.config.js` (Styles)
+
+Configuration Tailwind :
+- Theme (colors, fonts, spacing)
+- Plugins
+- Content paths (où Tailwind cherche les classes)
+
+---
+
+## Données utilisateur (%APPDATA%)
+
+```
+C:\Users\[USER]\AppData\Roaming\Flemme\
+│
+├── config.toml                     # Configuration utilisateur
+│
+├── models/                         # Modèles Whisper
+│   ├── ggml-tiny.bin               # Tiny (~75 MB)
+│   ├── ggml-base.bin               # Base (~145 MB)
+│   ├── ggml-small.bin              # Small (~466 MB)
+│   └── ...
+│
+└── logs/                           # Fichiers de logs
+    ├── flemme.log                  # Log courant
+    ├── flemme.2025-10-29.log       # Logs archivés
+    └── ...
+```
+
+---
+
+## Fichiers générés (gitignored)
+
+```
+# Backend
+src-tauri/target/                   # Build artifacts Rust
+
+# Frontend
+node_modules/                       # Dépendances npm
+dist/                               # Build frontend
+
+# IDE
+.vscode/                            # Config VS Code (optionnel)
+.idea/                              # Config IntelliJ (optionnel)
+
+# OS
+.DS_Store                           # macOS
+Thumbs.db                           # Windows
+```
+
+---
+
+## Workflow de développement
+
+### Development mode
+
+```bash
+# Lancer en mode dev (hot reload)
+cargo tauri dev
+
+# Frontend : http://localhost:1420 (proxy interne Tauri)
+# Backend : Rust recompile à chaque modification
+```
+
+### Production build
+
+```bash
+# Build release
+cargo tauri build
+
+# Output :
+# - src-tauri/target/release/flemme.exe
+# - Installeur : src-tauri/target/release/bundle/nsis/Flemme_x.x.x_x64-setup.exe
+```
+
+---
+
+## Points d'attention
+
+### Modules importants
+
+1. **audio/recorder.rs** : Gère cpal, thread audio, buffer partagé
+2. **transcription/engine.rs** : Interface avec whisper.cpp, critique pour perfs
+3. **hotkey/listener.rs** : Délègue au plugin Tauri, mais gère la logique d'enregistrement
+4. **main.rs** : Orchestre tout, état global, callbacks hotkeys
+
+### Dépendances critiques
+
+- `whisper-rs` : Peut être complexe à compiler, nécessite MSVC sur Windows
+- `cpal` : Bien testé mais peut avoir des problèmes de permissions micro
+- `enigo` : Auto-paste peut ne pas marcher dans certaines apps (sécurité)
+
+---
+
+**Cette structure est conçue pour :**
+- ✅ Scalabilité (facile d'ajouter des modules)
+- ✅ Maintenabilité (séparation claire des responsabilités)
+- ✅ Testabilité (modules indépendants)
+- ✅ Performance (Rust backend, Svelte léger)
