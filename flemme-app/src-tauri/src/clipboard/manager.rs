@@ -10,7 +10,7 @@ impl ClipboardManager {
         todo!("Implement ClipboardManager::new")
     }
 
-    pub fn copy_text(&self, text: &str) -> Result<(), String> {
+    pub fn copy_text(&self, _text: &str) -> Result<(), String> {
         todo!("Implement copy to clipboard")
     }
 

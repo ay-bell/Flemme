@@ -6,11 +6,11 @@ pub struct TranscriptionEngine {
 }
 
 impl TranscriptionEngine {
-    pub fn new(model_path: &str) -> Result<Self, String> {
+    pub fn new(_model_path: &str) -> Result<Self, String> {
         todo!("Implement TranscriptionEngine::new")
     }
 
-    pub fn transcribe(&self, audio_data: &[f32]) -> Result<String, String> {
+    pub fn transcribe(&self, _audio_data: &[f32]) -> Result<String, String> {
         todo!("Implement transcription")
     }
 }

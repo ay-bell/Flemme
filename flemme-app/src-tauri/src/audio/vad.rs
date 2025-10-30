@@ -10,7 +10,7 @@ impl VoiceActivityDetector {
         todo!("Implement VoiceActivityDetector::new")
     }
 
-    pub fn detect(&self, audio_data: &[f32]) -> bool {
+    pub fn detect(&self, _audio_data: &[f32]) -> bool {
         todo!("Implement voice activity detection")
     }
 }

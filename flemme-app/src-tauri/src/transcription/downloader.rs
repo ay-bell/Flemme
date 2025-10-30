@@ -10,11 +10,11 @@ impl ModelDownloader {
         todo!("Implement ModelDownloader::new")
     }
 
-    pub fn download_model(&self, model_name: &str, destination: &str) -> Result<(), String> {
+    pub fn download_model(&self, _model_name: &str, _destination: &str) -> Result<(), String> {
         todo!("Implement model download")
     }
 
-    pub fn check_model_exists(&self, model_path: &str) -> bool {
+    pub fn check_model_exists(&self, _model_path: &str) -> bool {
         todo!("Implement model existence check")
     }
 }

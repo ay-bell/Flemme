@@ -10,7 +10,7 @@ impl HotkeyListener {
         todo!("Implement HotkeyListener::new")
     }
 
-    pub fn register_hotkey(&mut self, key_combo: &str) -> Result<(), String> {
+    pub fn register_hotkey(&mut self, _key_combo: &str) -> Result<(), String> {
         todo!("Implement hotkey registration")
     }
 
