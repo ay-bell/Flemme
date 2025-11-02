@@ -8,9 +8,10 @@ pub mod config;
 use audio::AudioRecorder;
 use transcription::TranscriptionEngine;
 use clipboard::ClipboardManager;
+use hotkey::HotkeyListener;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
-use tauri::State;
+use tauri::{AppHandle, State};
 
 // Audio command messages
 pub enum AudioCommand {
@@ -205,6 +206,79 @@ fn copy_to_clipboard(text: String) -> Result<(), String> {
     clipboard.copy_text(&text)
 }
 
+/// Handle the complete workflow when recording finishes
+/// Stop recording → Transcribe → Auto-paste
+fn handle_recording_complete(
+    audio_tx: Sender<AudioCommand>,
+    transcription_tx: Sender<TranscriptionCommand>,
+    _app_handle: AppHandle
+) {
+    thread::spawn(move || {
+        // Stop recording and get audio data
+        let (reply_tx, reply_rx) = mpsc::channel();
+        if let Err(e) = audio_tx.send(AudioCommand::StopRecording { reply: reply_tx }) {
+            eprintln!("Failed to send stop recording command: {}", e);
+            return;
+        }
+
+        let audio_data = match reply_rx.recv() {
+            Ok(Ok(data)) => data,
+            Ok(Err(e)) => {
+                eprintln!("Failed to stop recording: {}", e);
+                return;
+            }
+            Err(e) => {
+                eprintln!("Failed to receive audio data: {}", e);
+                return;
+            }
+        };
+
+        println!("Recording stopped, got {} samples", audio_data.len());
+
+        // Transcribe the audio
+        let (reply_tx, reply_rx) = mpsc::channel();
+        if let Err(e) = transcription_tx.send(TranscriptionCommand::Transcribe {
+            audio: audio_data,
+            reply: reply_tx,
+        }) {
+            eprintln!("Failed to send transcription command: {}", e);
+            return;
+        }
+
+        let transcription = match reply_rx.recv() {
+            Ok(Ok(text)) => text,
+            Ok(Err(e)) => {
+                eprintln!("Transcription failed: {}", e);
+                return;
+            }
+            Err(e) => {
+                eprintln!("Failed to receive transcription: {}", e);
+                return;
+            }
+        };
+
+        println!("Transcription completed: {}", transcription);
+
+        // Auto-paste the transcribed text
+        if !transcription.is_empty() {
+            match ClipboardManager::new() {
+                Ok(clipboard) => {
+                    if let Err(e) = clipboard.auto_paste(&transcription) {
+                        eprintln!("Failed to auto-paste: {}", e);
+                    } else {
+                        println!("Text auto-pasted successfully");
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Failed to create clipboard manager: {}", e);
+                }
+            }
+        } else {
+            println!("No transcription to paste (empty result)");
+        }
+    });
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Determine model path
@@ -241,8 +315,47 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(AppState {
-            audio_tx,
-            transcription_tx,
+            audio_tx: audio_tx.clone(),
+            transcription_tx: transcription_tx.clone(),
+        })
+        .setup(move |app| {
+            #[cfg(desktop)]
+            {
+                use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+
+                let shortcut = HotkeyListener::get_record_shortcut();
+                let audio_tx_clone = audio_tx.clone();
+                let transcription_tx_clone = transcription_tx.clone();
+                let app_handle = app.handle().clone();
+
+                // Register the global shortcut plugin with handler
+                app.handle().plugin(
+                    tauri_plugin_global_shortcut::Builder::new()
+                        .with_handler(move |_app, _shortcut, event| {
+                            match event.state() {
+                                ShortcutState::Pressed => {
+                                    println!("Hotkey pressed - starting recording");
+                                    let _ = audio_tx_clone.send(AudioCommand::StartRecording);
+                                }
+                                ShortcutState::Released => {
+                                    println!("Hotkey released - stopping recording and transcribing");
+                                    handle_recording_complete(
+                                        audio_tx_clone.clone(),
+                                        transcription_tx_clone.clone(),
+                                        app_handle.clone()
+                                    );
+                                }
+                            }
+                        })
+                        .build()
+                )?;
+
+                // Register the shortcut
+                app.global_shortcut().register(shortcut)?;
+                println!("Global shortcut registered: Ctrl+Alt+R");
+            }
+
+            Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             greet,
