@@ -7,6 +7,7 @@ pub mod config;
 
 use audio::AudioRecorder;
 use transcription::TranscriptionEngine;
+use clipboard::ClipboardManager;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 use tauri::State;
@@ -192,6 +193,18 @@ fn transcribe(state: State<'_, AppState>, audio: Vec<f32>) -> Result<String, Str
         .map_err(|e| format!("Failed to receive reply: {}", e))?
 }
 
+#[tauri::command]
+fn auto_paste(text: String) -> Result<(), String> {
+    let clipboard = ClipboardManager::new()?;
+    clipboard.auto_paste(&text)
+}
+
+#[tauri::command]
+fn copy_to_clipboard(text: String) -> Result<(), String> {
+    let clipboard = ClipboardManager::new()?;
+    clipboard.copy_text(&text)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Determine model path
@@ -236,7 +249,9 @@ pub fn run() {
             start_recording,
             stop_recording,
             is_recording,
-            transcribe
+            transcribe,
+            auto_paste,
+            copy_to_clipboard
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
