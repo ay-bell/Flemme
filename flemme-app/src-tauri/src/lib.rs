@@ -104,10 +104,16 @@ impl TranscriptionWorker {
         loop {
             match self.rx.recv() {
                 Ok(TranscriptionCommand::Transcribe { audio, reply }) => {
+                    println!("TranscriptionWorker: Received transcribe request with {} samples", audio.len());
+
                     // Lazy load the engine on first use
                     if self.engine.is_none() {
+                        println!("TranscriptionWorker: Loading Whisper model from {}", self.model_path);
                         match TranscriptionEngine::new(&self.model_path) {
-                            Ok(engine) => self.engine = Some(engine),
+                            Ok(engine) => {
+                                println!("TranscriptionWorker: Model loaded successfully");
+                                self.engine = Some(engine);
+                            }
                             Err(e) => {
                                 eprintln!("Failed to load transcription engine: {}", e);
                                 let _ = reply.send(Err(e));
@@ -116,11 +122,18 @@ impl TranscriptionWorker {
                         }
                     }
 
+                    println!("TranscriptionWorker: Starting transcription...");
                     let result = if let Some(ref engine) = self.engine {
                         engine.transcribe(&audio)
                     } else {
                         Err("Transcription engine not initialized".to_string())
                     };
+
+                    match &result {
+                        Ok(text) => println!("TranscriptionWorker: Transcription successful: '{}'", text),
+                        Err(e) => eprintln!("TranscriptionWorker: Transcription failed: {}", e),
+                    }
+
                     let _ = reply.send(result);
                 }
                 Ok(TranscriptionCommand::Shutdown) | Err(_) => {
@@ -234,6 +247,14 @@ fn handle_recording_complete(
         };
 
         println!("Recording stopped, got {} samples", audio_data.len());
+
+        // Check if we have audio data
+        if audio_data.is_empty() {
+            eprintln!("No audio data recorded!");
+            return;
+        }
+
+        println!("Sending audio to transcription engine...");
 
         // Transcribe the audio
         let (reply_tx, reply_rx) = mpsc::channel();

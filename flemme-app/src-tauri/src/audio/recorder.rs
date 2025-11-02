@@ -36,6 +36,9 @@ impl AudioRecorder {
     /// Start recording audio
     pub fn start_recording(&mut self) -> Result<(), String> {
         let buffer = Arc::clone(&self.buffer);
+        let channels = self.config.channels;
+
+        println!("Recording with {} channels at {} Hz", channels, self.config.sample_rate.0);
 
         // Clear the buffer
         buffer.lock().unwrap().clear();
@@ -46,7 +49,15 @@ impl AudioRecorder {
                 move |data: &[f32], _: &cpal::InputCallbackInfo| {
                     // Callback called for each audio chunk
                     let mut buf = buffer.lock().unwrap();
-                    buf.extend_from_slice(data);
+
+                    // Convert to mono if stereo (take left channel)
+                    if channels == 2 {
+                        for i in (0..data.len()).step_by(2) {
+                            buf.push(data[i]);
+                        }
+                    } else {
+                        buf.extend_from_slice(data);
+                    }
                 },
                 |err| eprintln!("Stream error: {}", err),
                 None,
@@ -68,7 +79,37 @@ impl AudioRecorder {
         let buffer = self.buffer.lock().unwrap();
         let audio = buffer.clone();
 
-        Ok(audio)
+        println!("Audio recorded: {} samples at {} Hz", audio.len(), self.config.sample_rate.0);
+
+        // Resample to 16kHz if needed
+        if self.config.sample_rate.0 != 16000 {
+            println!("Resampling from {} Hz to 16000 Hz", self.config.sample_rate.0);
+            let resampled = self.resample(&audio, self.config.sample_rate.0, 16000);
+            println!("Resampled to {} samples", resampled.len());
+            Ok(resampled)
+        } else {
+            Ok(audio)
+        }
+    }
+
+    /// Simple linear resampling
+    fn resample(&self, input: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
+        if from_rate == to_rate {
+            return input.to_vec();
+        }
+
+        let ratio = from_rate as f64 / to_rate as f64;
+        let output_len = (input.len() as f64 / ratio) as usize;
+        let mut output = Vec::with_capacity(output_len);
+
+        for i in 0..output_len {
+            let src_idx = (i as f64 * ratio) as usize;
+            if src_idx < input.len() {
+                output.push(input[src_idx]);
+            }
+        }
+
+        output
     }
 
     /// Check if currently recording

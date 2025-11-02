@@ -27,6 +27,14 @@ impl TranscriptionEngine {
     /// Transcribe audio samples to text
     /// Audio must be mono 16kHz f32 samples
     pub fn transcribe(&self, audio_data: &[f32]) -> Result<String, String> {
+        // Validate input
+        if audio_data.is_empty() {
+            return Err("Audio data is empty".to_string());
+        }
+
+        let duration_secs = audio_data.len() as f32 / 16000.0;
+        println!("Transcribing {} samples ({:.2}s)...", audio_data.len(), duration_secs);
+
         // Create a state for this transcription
         let mut state = self.ctx.create_state()
             .map_err(|e| format!("Failed to create whisper state: {:?}", e))?;
@@ -34,16 +42,22 @@ impl TranscriptionEngine {
         // Configure transcription parameters
         let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
 
-        // Set language to auto-detect or specify
-        params.set_language(Some("auto"));
+        // Set language (fr for French, en for English, or None for auto-detect)
+        // Using "fr" as default, can be made configurable later
+        params.set_language(Some("fr"));
         params.set_translate(false);
+        params.set_print_special(false);
         params.set_print_progress(false);
         params.set_print_realtime(false);
         params.set_print_timestamps(false);
 
+        println!("Running Whisper inference...");
+
         // Run transcription
-        state.full(params, audio_data)
+        state.full(params, &audio_data[..])
             .map_err(|e| format!("Transcription failed: {:?}", e))?;
+
+        println!("Whisper inference completed, extracting text...");
 
         // Extract transcribed text
         let num_segments = state.full_n_segments()
