@@ -219,6 +219,16 @@ fn copy_to_clipboard(text: String) -> Result<(), String> {
     clipboard.copy_text(&text)
 }
 
+#[tauri::command]
+fn get_settings() -> Result<config::AppSettings, String> {
+    config::AppSettings::load()
+}
+
+#[tauri::command]
+fn save_settings(settings: config::AppSettings) -> Result<(), String> {
+    settings.save()
+}
+
 /// Handle the complete workflow when recording finishes
 /// Stop recording → Transcribe → Auto-paste
 fn handle_recording_complete(
@@ -343,6 +353,9 @@ pub fn run() {
             #[cfg(desktop)]
             {
                 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+                use tauri::menu::{MenuBuilder, MenuItemBuilder};
+                use tauri::tray::{TrayIconBuilder, TrayIconEvent};
+                use tauri::Manager;
 
                 let shortcut = HotkeyListener::get_record_shortcut();
                 let audio_tx_clone = audio_tx.clone();
@@ -374,6 +387,43 @@ pub fn run() {
                 // Register the shortcut
                 app.global_shortcut().register(shortcut)?;
                 println!("Global shortcut registered: Ctrl+Alt+R");
+
+                // Create system tray menu
+                let settings = MenuItemBuilder::with_id("settings", "Paramètres").build(app)?;
+                let quit = MenuItemBuilder::with_id("quit", "Quitter").build(app)?;
+                let menu = MenuBuilder::new(app)
+                    .items(&[&settings, &quit])
+                    .build()?;
+
+                // Build the tray icon
+                let _tray = TrayIconBuilder::new()
+                    .icon(app.default_window_icon().unwrap().clone())
+                    .menu(&menu)
+                    .on_menu_event(move |app, event| {
+                        match event.id().as_ref() {
+                            "settings" => {
+                                // Show main window when settings is clicked
+                                if let Some(window) = app.get_webview_window("main") {
+                                    let _ = window.show();
+                                    let _ = window.set_focus();
+                                }
+                            }
+                            "quit" => {
+                                app.exit(0);
+                            }
+                            _ => {}
+                        }
+                    })
+                    .on_tray_icon_event(|tray, event| {
+                        if let TrayIconEvent::DoubleClick { .. } = event {
+                            // Double-click to show window (Windows only)
+                            if let Some(app) = tray.app_handle().get_webview_window("main") {
+                                let _ = app.show();
+                                let _ = app.set_focus();
+                            }
+                        }
+                    })
+                    .build(app)?;
             }
 
             Ok(())
@@ -385,7 +435,9 @@ pub fn run() {
             is_recording,
             transcribe,
             auto_paste,
-            copy_to_clipboard
+            copy_to_clipboard,
+            get_settings,
+            save_settings
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

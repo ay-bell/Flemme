@@ -18,16 +18,29 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 cpal = "0.15"
-whisper-rs = "0.10"
+whisper-rs = "0.15"
 dirs = "5"
 arboard = "3"
 enigo = "0.2"
+num_cpus = "1"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-global-shortcut = "2"
+
+[profile.release]
+opt-level = 2
+lto = false
+codegen-units = 16
+debug = true
+strip = false
+debug-assertions = true
+overflow-checks = true
+
+[profile.dev]
+opt-level = 2
 
