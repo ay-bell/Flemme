@@ -11,6 +11,7 @@
   import { Separator } from "$lib/components/ui/separator";
   import type { AppSettings, LanguageOption, ModelOption } from "$lib/types/settings";
   import { DEFAULT_SETTINGS } from "$lib/types/settings";
+  import HotkeyCapture from "$lib/components/HotkeyCapture.svelte";
 
   // Settings state
   let hotkey = $state<string>(DEFAULT_SETTINGS.hotkey);
@@ -20,6 +21,7 @@
   let loading = $state<boolean>(true);
   let saveStatus = $state<string>("");
   let errorMessage = $state<string>("");
+  let isHotkeyModalOpen = $state<boolean>(false);
 
   const languages: LanguageOption[] = [
     { value: "fr", label: "Français" },
@@ -80,6 +82,36 @@
       }, 5000);
     }
   }
+
+  async function handleHotkeySelected(newHotkey: string) {
+    errorMessage = "";
+
+    try {
+      // Update the hotkey immediately via the backend
+      await invoke("update_hotkey", { newHotkey });
+
+      // Update the local state
+      hotkey = newHotkey;
+
+      // Save to settings file
+      const settings: AppSettings = {
+        hotkey,
+        language,
+        auto_paste: autoPaste,
+        model_name: selectedModel
+      };
+
+      await invoke("save_settings", { settings });
+
+      saveStatus = `Raccourci modifié avec succès : ${newHotkey}`;
+      setTimeout(() => saveStatus = "", 3000);
+      console.log("Hotkey updated successfully:", newHotkey);
+    } catch (error) {
+      console.error("Failed to update hotkey:", error);
+      errorMessage = `Erreur lors de la modification du raccourci: ${error}`;
+      setTimeout(() => errorMessage = "", 5000);
+    }
+  }
 </script>
 
 <div class="settings-container p-6">
@@ -116,7 +148,7 @@
             <Label for="hotkey">Raccourci actuel</Label>
             <Badge variant="secondary">{hotkey}</Badge>
           </div>
-          <Button variant="outline" class="w-full">
+          <Button variant="outline" class="w-full" onclick={() => isHotkeyModalOpen = true}>
             Modifier le raccourci
           </Button>
         </CardContent>
@@ -247,6 +279,12 @@
     </TabsContent>
   </Tabs>
 </div>
+
+<HotkeyCapture
+  bind:isOpen={isHotkeyModalOpen}
+  onClose={() => isHotkeyModalOpen = false}
+  onHotkeySelected={handleHotkeySelected}
+/>
 
 <style>
   .settings-container {

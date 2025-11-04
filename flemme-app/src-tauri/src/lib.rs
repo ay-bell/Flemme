@@ -10,8 +10,9 @@ use transcription::TranscriptionEngine;
 use clipboard::ClipboardManager;
 use hotkey::HotkeyListener;
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::Mutex;
 use std::thread;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, State, Manager};
 
 // Audio command messages
 pub enum AudioCommand {
@@ -29,6 +30,9 @@ pub enum TranscriptionCommand {
     },
     Shutdown,
 }
+
+// State to keep track of the currently registered hotkey
+pub struct CurrentHotkey(Mutex<String>);
 
 // Audio worker that runs in dedicated thread
 struct AudioWorker {
@@ -229,6 +233,70 @@ fn save_settings(settings: config::AppSettings) -> Result<(), String> {
     settings.save()
 }
 
+#[tauri::command]
+fn update_hotkey(
+    app: AppHandle,
+    new_hotkey: String,
+    current_hotkey: State<CurrentHotkey>
+) -> Result<(), String> {
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+
+    println!("Updating hotkey to: {}", new_hotkey);
+
+    // Parse the new hotkey string
+    let shortcut = HotkeyListener::parse_hotkey_string(&new_hotkey)?;
+
+    // Get the current hotkey
+    let old_hotkey = {
+        let guard = current_hotkey.0.lock()
+            .map_err(|e| format!("Failed to lock hotkey state: {}", e))?;
+        guard.clone()
+    };
+
+    // Unregister the old shortcut
+    if !old_hotkey.is_empty() {
+        let old_shortcut = HotkeyListener::parse_hotkey_string(&old_hotkey)?;
+        if let Err(e) = app.global_shortcut().unregister(old_shortcut) {
+            eprintln!("Warning: Failed to unregister old shortcut: {:?}", e);
+            // Continue anyway, as the shortcut might not be registered
+        }
+        println!("Unregistered old hotkey: {}", old_hotkey);
+    }
+
+    // Register the new shortcut
+    app.global_shortcut().register(shortcut)
+        .map_err(|e| format!("Failed to register new hotkey: {:?}. The shortcut might already be in use by another application.", e))?;
+
+    // Update the stored hotkey
+    let mut guard = current_hotkey.0.lock()
+        .map_err(|e| format!("Failed to lock hotkey state: {}", e))?;
+    *guard = new_hotkey.clone();
+
+    println!("Successfully registered new hotkey: {}", new_hotkey);
+    Ok(())
+}
+
+#[tauri::command]
+fn test_hotkey_available(app: AppHandle, hotkey: String) -> Result<bool, String> {
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+
+    // Parse the hotkey string
+    let shortcut = HotkeyListener::parse_hotkey_string(&hotkey)?;
+
+    // Try to register it temporarily to see if it's available
+    match app.global_shortcut().register(shortcut.clone()) {
+        Ok(_) => {
+            // It worked, so unregister it immediately
+            let _ = app.global_shortcut().unregister(shortcut);
+            Ok(true)
+        }
+        Err(_) => {
+            // Registration failed, shortcut is not available
+            Ok(false)
+        }
+    }
+}
+
 /// Handle the complete workflow when recording finishes
 /// Stop recording → Transcribe → Auto-paste
 fn handle_recording_complete(
@@ -343,12 +411,17 @@ pub fn run() {
         worker.run();
     });
 
+    // Load settings to get the configured hotkey
+    let settings = config::AppSettings::load().unwrap_or_default();
+    let initial_hotkey = settings.hotkey.clone();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(AppState {
             audio_tx: audio_tx.clone(),
             transcription_tx: transcription_tx.clone(),
         })
+        .manage(CurrentHotkey(Mutex::new(initial_hotkey.clone())))
         .setup(move |app| {
             #[cfg(desktop)]
             {
@@ -357,7 +430,6 @@ pub fn run() {
                 use tauri::tray::{TrayIconBuilder, TrayIconEvent};
                 use tauri::Manager;
 
-                let shortcut = HotkeyListener::get_record_shortcut();
                 let audio_tx_clone = audio_tx.clone();
                 let transcription_tx_clone = transcription_tx.clone();
                 let app_handle = app.handle().clone();
@@ -384,9 +456,15 @@ pub fn run() {
                         .build()
                 )?;
 
-                // Register the shortcut
+                // Parse and register the shortcut from settings
+                let shortcut = HotkeyListener::parse_hotkey_string(&initial_hotkey)
+                    .unwrap_or_else(|e| {
+                        eprintln!("Failed to parse hotkey '{}': {}. Using default Ctrl+Alt+R", initial_hotkey, e);
+                        HotkeyListener::get_record_shortcut()
+                    });
+
                 app.global_shortcut().register(shortcut)?;
-                println!("Global shortcut registered: Ctrl+Alt+R");
+                println!("Global shortcut registered: {}", initial_hotkey);
 
                 // Create system tray menu
                 let settings = MenuItemBuilder::with_id("settings", "Paramètres").build(app)?;
@@ -437,7 +515,9 @@ pub fn run() {
             auto_paste,
             copy_to_clipboard,
             get_settings,
-            save_settings
+            save_settings,
+            update_hotkey,
+            test_hotkey_available
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
