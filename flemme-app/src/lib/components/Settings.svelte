@@ -162,7 +162,7 @@
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Select bind:value={language}>
+          <Select value={language} onValueChange={(v: string | undefined) => language = v ?? language}>
             <SelectTrigger>
               {languages.find(l => l.value === language)?.label || "Sélectionnez une langue"}
             </SelectTrigger>
@@ -216,7 +216,7 @@
           </CardDescription>
         </CardHeader>
         <CardContent class="space-y-4">
-          <Select bind:value={selectedModel}>
+          <Select value={selectedModel} onValueChange={(v: string | undefined) => selectedModel = v ?? selectedModel}>
             <SelectTrigger>
               {models.find(m => m.value === selectedModel)?.label || "Sélectionnez un modèle"}
             </SelectTrigger>
