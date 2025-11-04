@@ -5,27 +5,30 @@
   import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "$lib/components/ui/card";
   import { Label } from "$lib/components/ui/label";
   import { Switch } from "$lib/components/ui/switch";
-  import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "$lib/components/ui/select";
+  import { Select, SelectContent, SelectItem, SelectTrigger } from "$lib/components/ui/select";
   import { Button } from "$lib/components/ui/button";
   import { Badge } from "$lib/components/ui/badge";
   import { Separator } from "$lib/components/ui/separator";
+  import type { AppSettings, LanguageOption, ModelOption } from "$lib/types/settings";
+  import { DEFAULT_SETTINGS } from "$lib/types/settings";
 
   // Settings state
-  let hotkey = $state("Ctrl+Alt+R");
-  let language = $state("fr");
-  let autoPaste = $state(true);
-  let selectedModel = $state("ggml-small.bin");
-  let loading = $state(true);
-  let saveStatus = $state("");
+  let hotkey = $state<string>(DEFAULT_SETTINGS.hotkey);
+  let language = $state<string>(DEFAULT_SETTINGS.language);
+  let autoPaste = $state<boolean>(DEFAULT_SETTINGS.auto_paste);
+  let selectedModel = $state<string>(DEFAULT_SETTINGS.model_name);
+  let loading = $state<boolean>(true);
+  let saveStatus = $state<string>("");
+  let errorMessage = $state<string>("");
 
-  const languages = [
+  const languages: LanguageOption[] = [
     { value: "fr", label: "Français" },
     { value: "en", label: "English" },
     { value: "es", label: "Español" },
     { value: "de", label: "Deutsch" }
   ];
 
-  const models = [
+  const models: ModelOption[] = [
     { value: "ggml-tiny.bin", label: "Tiny (75 MB)" },
     { value: "ggml-base.bin", label: "Base (142 MB)" },
     { value: "ggml-small.bin", label: "Small (466 MB)" },
@@ -35,35 +38,46 @@
   // Load settings on mount
   onMount(async () => {
     try {
-      const settings = await invoke("get_settings");
+      const settings = await invoke<AppSettings>("get_settings");
       hotkey = settings.hotkey;
       language = settings.language;
       autoPaste = settings.auto_paste;
       selectedModel = settings.model_name;
       console.log("Settings loaded:", settings);
+      errorMessage = "";
     } catch (error) {
       console.error("Failed to load settings:", error);
+      errorMessage = `Erreur lors du chargement des paramètres: ${error}`;
+      // Keep default values if loading fails
     } finally {
       loading = false;
     }
   });
 
   async function handleSave() {
+    saveStatus = "";
+    errorMessage = "";
+
     try {
-      await invoke("save_settings", {
-        settings: {
-          hotkey,
-          language,
-          auto_paste: autoPaste,
-          model_name: selectedModel
-        }
-      });
+      const settings: AppSettings = {
+        hotkey,
+        language,
+        auto_paste: autoPaste,
+        model_name: selectedModel
+      };
+
+      await invoke("save_settings", { settings });
       saveStatus = "Paramètres enregistrés avec succès!";
       setTimeout(() => saveStatus = "", 3000);
+      console.log("Settings saved successfully:", settings);
     } catch (error) {
       console.error("Failed to save settings:", error);
-      saveStatus = "Erreur lors de l'enregistrement";
-      setTimeout(() => saveStatus = "", 3000);
+      errorMessage = `Erreur lors de l'enregistrement: ${error}`;
+      saveStatus = "Échec de l'enregistrement";
+      setTimeout(() => {
+        saveStatus = "";
+        errorMessage = "";
+      }, 5000);
     }
   }
 </script>
@@ -73,6 +87,13 @@
     <h1 class="text-3xl font-bold">Paramètres Flemme</h1>
     <p class="text-muted-foreground">Configurez votre application de transcription vocale</p>
   </div>
+
+  {#if errorMessage}
+    <div class="error-banner mb-4 p-4 rounded-lg bg-red-100 text-red-700 border border-red-300">
+      <p class="font-semibold">⚠️ Erreur</p>
+      <p class="text-sm">{errorMessage}</p>
+    </div>
+  {/if}
 
   <Tabs value="parametres" class="w-full">
     <TabsList class="grid w-full grid-cols-3">
@@ -111,7 +132,7 @@
         <CardContent>
           <Select bind:value={language}>
             <SelectTrigger>
-              <SelectValue placeholder="Sélectionnez une langue" />
+              {languages.find(l => l.value === language)?.label || "Sélectionnez une langue"}
             </SelectTrigger>
             <SelectContent>
               {#each languages as lang}
@@ -165,7 +186,7 @@
         <CardContent class="space-y-4">
           <Select bind:value={selectedModel}>
             <SelectTrigger>
-              <SelectValue placeholder="Sélectionnez un modèle" />
+              {models.find(m => m.value === selectedModel)?.label || "Sélectionnez un modèle"}
             </SelectTrigger>
             <SelectContent>
               {#each models as model}
