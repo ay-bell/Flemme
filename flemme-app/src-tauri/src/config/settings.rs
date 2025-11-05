@@ -10,6 +10,9 @@ pub struct AppSettings {
     pub language: String,
     pub auto_paste: bool,
     pub model_name: String,
+    pub push_to_talk: bool,
+    pub cancel_key: String,
+    pub device_name: Option<String>,
 }
 
 impl Default for AppSettings {
@@ -19,6 +22,9 @@ impl Default for AppSettings {
             language: String::from("fr"),
             auto_paste: true,
             model_name: String::from("ggml-small.bin"),
+            push_to_talk: false, // Default to toggle mode
+            cancel_key: String::from("Escape"),
+            device_name: None, // None means use default device
         }
     }
 }

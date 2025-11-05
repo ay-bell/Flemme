@@ -12,6 +12,33 @@ pub struct AudioRecorder {
 }
 
 impl AudioRecorder {
+    /// List all available input devices
+    pub fn list_devices() -> Result<Vec<(String, bool)>, String> {
+        let host = cpal::default_host();
+        let default_device = host.default_input_device();
+        let default_name = default_device
+            .as_ref()
+            .and_then(|d| d.name().ok());
+
+        let devices = host
+            .input_devices()
+            .map_err(|e| format!("Failed to get input devices: {}", e))?;
+
+        let mut result = Vec::new();
+        for device in devices {
+            if let Ok(name) = device.name() {
+                let is_default = Some(&name) == default_name.as_ref();
+                result.push((name, is_default));
+            }
+        }
+
+        if result.is_empty() {
+            return Err("No input devices found".to_string());
+        }
+
+        Ok(result)
+    }
+
     /// Create a new recorder with the default microphone
     pub fn new() -> Result<Self, String> {
         let host = cpal::default_host();
@@ -19,6 +46,41 @@ impl AudioRecorder {
         let device = host
             .default_input_device()
             .ok_or("No microphone found")?;
+
+        let config = device
+            .default_input_config()
+            .map_err(|e| format!("Config error: {}", e))?;
+
+        Ok(Self {
+            device,
+            config: config.into(),
+            stream: None,
+            buffer: Arc::new(Mutex::new(Vec::new())),
+            sample_rate: 16000, // Whisper requires 16kHz
+        })
+    }
+
+    /// Create a new recorder with a specific device by name
+    pub fn new_with_device(device_name: &str) -> Result<Self, String> {
+        let host = cpal::default_host();
+
+        // Find device by name
+        let devices = host
+            .input_devices()
+            .map_err(|e| format!("Failed to get input devices: {}", e))?;
+
+        let device = devices
+            .filter_map(|d| {
+                d.name().ok().and_then(|name| {
+                    if name == device_name {
+                        Some(d)
+                    } else {
+                        None
+                    }
+                })
+            })
+            .next()
+            .ok_or_else(|| format!("Device '{}' not found", device_name))?;
 
         let config = device
             .default_input_config()

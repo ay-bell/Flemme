@@ -33,7 +33,8 @@ impl TranscriptionEngine {
 
     /// Transcribe audio samples to text
     /// Audio must be mono 16kHz f32 samples
-    pub fn transcribe(&self, audio_data: &[f32]) -> Result<String, String> {
+    /// language: ISO 639-1 code (e.g., "fr", "en", "es") or None for auto-detect
+    pub fn transcribe(&self, audio_data: &[f32], language: Option<&str>) -> Result<String, String> {
         // Validate input
         if audio_data.is_empty() {
             return Err("Audio data is empty".to_string());
@@ -76,9 +77,8 @@ impl TranscriptionEngine {
         // Configure transcription parameters for maximum performance
         let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
 
-        // Set language (fr for French, en for English, or None for auto-detect)
-        // Using "fr" as default, can be made configurable later
-        params.set_language(Some("fr"));
+        // Set language from parameter
+        params.set_language(language);
         params.set_translate(false);
         params.set_print_special(false);
         params.set_print_progress(false);
@@ -93,7 +93,7 @@ impl TranscriptionEngine {
 
         println!("=== TRANSCRIPTION PARAMETERS ===");
         println!("Threads: {}", n_threads);
-        println!("Language: fr");
+        println!("Language: {:?}", language.unwrap_or("auto-detect"));
         println!("Strategy: Greedy {{ best_of: 1 }}");
         println!("Audio duration: {:.2}s ({} samples)", duration_secs, audio_data.len());
         println!("Running Whisper inference...");

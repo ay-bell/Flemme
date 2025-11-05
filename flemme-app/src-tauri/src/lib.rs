@@ -25,7 +25,12 @@ pub enum AudioCommand {
 pub enum TranscriptionCommand {
     Transcribe {
         audio: Vec<f32>,
+        language: Option<String>,
         reply: Sender<Result<String, String>>,
+    },
+    ReloadModel {
+        model_path: String,
+        reply: Sender<Result<(), String>>,
     },
     Shutdown,
 }
@@ -49,7 +54,18 @@ impl AudioWorker {
             match self.rx.recv() {
                 Ok(AudioCommand::StartRecording) => {
                     if self.recorder.is_none() {
-                        match AudioRecorder::new() {
+                        // Load settings to check if a specific device is configured
+                        let settings = config::AppSettings::load().unwrap_or_default();
+
+                        let recorder_result = if let Some(device_name) = settings.device_name {
+                            println!("Using configured audio device: {}", device_name);
+                            AudioRecorder::new_with_device(&device_name)
+                        } else {
+                            println!("Using default audio device");
+                            AudioRecorder::new()
+                        };
+
+                        match recorder_result {
                             Ok(rec) => self.recorder = Some(rec),
                             Err(e) => eprintln!("Failed to create recorder: {}", e),
                         }
@@ -103,7 +119,7 @@ impl TranscriptionWorker {
     fn run(mut self) {
         loop {
             match self.rx.recv() {
-                Ok(TranscriptionCommand::Transcribe { audio, reply }) => {
+                Ok(TranscriptionCommand::Transcribe { audio, language, reply }) => {
                     println!("TranscriptionWorker: Received transcribe request with {} samples", audio.len());
 
                     // Lazy load the engine on first use
@@ -124,7 +140,7 @@ impl TranscriptionWorker {
 
                     println!("TranscriptionWorker: Starting transcription...");
                     let result = if let Some(ref engine) = self.engine {
-                        engine.transcribe(&audio)
+                        engine.transcribe(&audio, language.as_deref())
                     } else {
                         Err("Transcription engine not initialized".to_string())
                     };
@@ -135,6 +151,26 @@ impl TranscriptionWorker {
                     }
 
                     let _ = reply.send(result);
+                }
+                Ok(TranscriptionCommand::ReloadModel { model_path, reply }) => {
+                    println!("TranscriptionWorker: Reloading model from {}", model_path);
+
+                    // Drop the old engine (unloads the model)
+                    self.engine = None;
+                    self.model_path = model_path.clone();
+
+                    // Load the new model
+                    match TranscriptionEngine::new(&model_path) {
+                        Ok(engine) => {
+                            println!("TranscriptionWorker: New model loaded successfully");
+                            self.engine = Some(engine);
+                            let _ = reply.send(Ok(()));
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to reload transcription engine: {}", e);
+                            let _ = reply.send(Err(e));
+                        }
+                    }
                 }
                 Ok(TranscriptionCommand::Shutdown) | Err(_) => {
                     break;
@@ -193,11 +229,16 @@ fn is_recording(state: State<'_, AppState>) -> Result<bool, String> {
 
 #[tauri::command]
 fn transcribe(state: State<'_, AppState>, audio: Vec<f32>) -> Result<String, String> {
+    // Load settings to get language preference
+    let settings = config::AppSettings::load().unwrap_or_default();
+    let language = Some(settings.language);
+
     let (reply_tx, reply_rx) = mpsc::channel();
     state
         .transcription_tx
         .send(TranscriptionCommand::Transcribe {
             audio,
+            language,
             reply: reply_tx,
         })
         .map_err(|e| format!("Failed to send command: {}", e))?;
@@ -227,6 +268,113 @@ fn get_settings() -> Result<config::AppSettings, String> {
 #[tauri::command]
 fn save_settings(settings: config::AppSettings) -> Result<(), String> {
     settings.save()
+}
+
+#[tauri::command]
+fn update_hotkey(app: AppHandle, new_hotkey: String) -> Result<(), String> {
+    use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
+    use std::str::FromStr;
+
+    // Load current settings
+    let mut settings = config::AppSettings::load()?;
+    let old_hotkey = settings.hotkey.clone();
+
+    // Parse the new hotkey
+    let shortcut = Shortcut::from_str(&new_hotkey)
+        .map_err(|e| format!("Invalid hotkey format: {}", e))?;
+
+    // Unregister the old hotkey
+    if let Ok(old_shortcut) = Shortcut::from_str(&old_hotkey) {
+        let _ = app.global_shortcut().unregister(old_shortcut);
+        println!("Unregistered old hotkey: {}", old_hotkey);
+    }
+
+    // Register the new hotkey
+    app.global_shortcut().register(shortcut)
+        .map_err(|e| format!("Failed to register hotkey: {}", e))?;
+
+    println!("Registered new hotkey: {}", new_hotkey);
+
+    // Save the new hotkey to settings
+    settings.hotkey = new_hotkey;
+    settings.save()?;
+
+    Ok(())
+}
+
+#[tauri::command]
+fn get_audio_devices() -> Result<Vec<(String, bool)>, String> {
+    audio::AudioRecorder::list_devices()
+}
+
+#[tauri::command]
+fn update_cancel_key(app: AppHandle, new_cancel_key: String) -> Result<(), String> {
+    use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
+    use std::str::FromStr;
+
+    // Load current settings
+    let mut settings = config::AppSettings::load()?;
+    let old_cancel_key = settings.cancel_key.clone();
+
+    // Parse the new cancel key
+    let shortcut = Shortcut::from_str(&new_cancel_key)
+        .map_err(|e| format!("Invalid cancel key format: {}", e))?;
+
+    // Unregister the old cancel key
+    if let Ok(old_shortcut) = Shortcut::from_str(&old_cancel_key) {
+        let _ = app.global_shortcut().unregister(old_shortcut);
+        println!("Unregistered old cancel key: {}", old_cancel_key);
+    }
+
+    // Register the new cancel key
+    app.global_shortcut().register(shortcut)
+        .map_err(|e| format!("Failed to register cancel key: {}", e))?;
+
+    println!("Registered new cancel key: {}", new_cancel_key);
+
+    // Save the new cancel key to settings
+    settings.cancel_key = new_cancel_key;
+    settings.save()?;
+
+    Ok(())
+}
+
+#[tauri::command]
+fn reload_model(state: State<'_, AppState>, model_name: String) -> Result<(), String> {
+    // Construct the full model path
+    let model_path = std::env::var("FLEMME_MODEL_PATH")
+        .ok()
+        .and_then(|path| {
+            // If FLEMME_MODEL_PATH is set, use its directory with the new model name
+            let mut p = std::path::PathBuf::from(path);
+            p.pop(); // Remove the filename
+            p.push(&model_name);
+            Some(p.to_string_lossy().to_string())
+        })
+        .unwrap_or_else(|| {
+            // Otherwise use default location
+            let mut path = dirs::data_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+            path.push("Flemme");
+            path.push("models");
+            path.push(&model_name);
+            path.to_string_lossy().to_string()
+        });
+
+    println!("Reloading model: {}", model_path);
+
+    // Send reload command to transcription worker
+    let (reply_tx, reply_rx) = mpsc::channel();
+    state
+        .transcription_tx
+        .send(TranscriptionCommand::ReloadModel {
+            model_path,
+            reply: reply_tx,
+        })
+        .map_err(|e| format!("Failed to send reload command: {}", e))?;
+
+    reply_rx
+        .recv()
+        .map_err(|e| format!("Failed to receive reply: {}", e))?
 }
 
 /// Handle the complete workflow when recording finishes
@@ -266,10 +414,15 @@ fn handle_recording_complete(
 
         println!("Sending audio to transcription engine...");
 
+        // Load settings to get language preference
+        let settings = config::AppSettings::load().unwrap_or_default();
+        let language = Some(settings.language);
+
         // Transcribe the audio
         let (reply_tx, reply_rx) = mpsc::channel();
         if let Err(e) = transcription_tx.send(TranscriptionCommand::Transcribe {
             audio: audio_data,
+            language,
             reply: reply_tx,
         }) {
             eprintln!("Failed to send transcription command: {}", e);
@@ -290,18 +443,36 @@ fn handle_recording_complete(
 
         println!("Transcription completed: {}", transcription);
 
-        // Auto-paste the transcribed text
+        // Auto-paste the transcribed text if enabled in settings
         if !transcription.is_empty() {
-            match ClipboardManager::new() {
-                Ok(clipboard) => {
-                    if let Err(e) = clipboard.auto_paste(&transcription) {
-                        eprintln!("Failed to auto-paste: {}", e);
-                    } else {
-                        println!("Text auto-pasted successfully");
+            let settings = config::AppSettings::load().unwrap_or_default();
+
+            if settings.auto_paste {
+                match ClipboardManager::new() {
+                    Ok(clipboard) => {
+                        if let Err(e) = clipboard.auto_paste(&transcription) {
+                            eprintln!("Failed to auto-paste: {}", e);
+                        } else {
+                            println!("Text auto-pasted successfully");
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to create clipboard manager: {}", e);
                     }
                 }
-                Err(e) => {
-                    eprintln!("Failed to create clipboard manager: {}", e);
+            } else {
+                println!("Auto-paste disabled, copying to clipboard only");
+                match ClipboardManager::new() {
+                    Ok(clipboard) => {
+                        if let Err(e) = clipboard.copy_text(&transcription) {
+                            eprintln!("Failed to copy to clipboard: {}", e);
+                        } else {
+                            println!("Text copied to clipboard");
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to create clipboard manager: {}", e);
+                    }
                 }
             }
         } else {
@@ -362,31 +533,102 @@ pub fn run() {
                 let transcription_tx_clone = transcription_tx.clone();
                 let app_handle = app.handle().clone();
 
-                // Register the global shortcut plugin with handler
+                // Track recording state for toggle mode
+                use std::sync::{Arc, Mutex};
+                let is_recording = Arc::new(Mutex::new(false));
+                let is_recording_clone = is_recording.clone();
+                let is_recording_for_cancel = is_recording.clone();
+
+                // Clone for cancel handler
+                let audio_tx_for_cancel = audio_tx.clone();
+
+                // Load cancel key
+                let settings = config::AppSettings::load().unwrap_or_default();
+                let cancel_key = settings.cancel_key.clone();
+
+                // Register the global shortcut plugin with handler for both main and cancel keys
                 app.handle().plugin(
                     tauri_plugin_global_shortcut::Builder::new()
-                        .with_handler(move |_app, _shortcut, event| {
-                            match event.state() {
-                                ShortcutState::Pressed => {
-                                    println!("Hotkey pressed - starting recording");
-                                    let _ = audio_tx_clone.send(AudioCommand::StartRecording);
+                        .with_handler(move |_app, shortcut, event| {
+                            // Load settings to check push_to_talk mode
+                            let settings = config::AppSettings::load().unwrap_or_default();
+                            let shortcut_str = shortcut.to_string();
+
+                            // Check if this is the cancel key
+                            if shortcut_str == cancel_key {
+                                // Only handle in toggle mode when recording is active
+                                if let ShortcutState::Pressed = event.state() {
+                                    // Cancel key only works in toggle mode
+                                    if !settings.push_to_talk {
+                                        let mut recording = is_recording_for_cancel.lock().unwrap();
+
+                                        if *recording {
+                                            println!("Cancel key pressed - stopping recording without transcription");
+                                            *recording = false;
+
+                                            // Stop recording but don't transcribe
+                                            let (reply_tx, _reply_rx) = mpsc::channel();
+                                            let _ = audio_tx_for_cancel.send(AudioCommand::StopRecording { reply: reply_tx });
+                                        }
+                                    }
                                 }
-                                ShortcutState::Released => {
-                                    println!("Hotkey released - stopping recording and transcribing");
-                                    handle_recording_complete(
-                                        audio_tx_clone.clone(),
-                                        transcription_tx_clone.clone(),
-                                        app_handle.clone()
-                                    );
+                                return;
+                            }
+
+                            // Otherwise, handle the main recording hotkey
+                            if settings.push_to_talk {
+                                // Push-to-Talk mode: press to start, release to stop
+                                match event.state() {
+                                    ShortcutState::Pressed => {
+                                        println!("Hotkey pressed (push-to-talk) - starting recording");
+                                        let _ = audio_tx_clone.send(AudioCommand::StartRecording);
+                                    }
+                                    ShortcutState::Released => {
+                                        println!("Hotkey released (push-to-talk) - stopping recording and transcribing");
+                                        handle_recording_complete(
+                                            audio_tx_clone.clone(),
+                                            transcription_tx_clone.clone(),
+                                            app_handle.clone()
+                                        );
+                                    }
+                                }
+                            } else {
+                                // Toggle mode: press once to start, press again to stop
+                                if let ShortcutState::Pressed = event.state() {
+                                    let mut recording = is_recording_clone.lock().unwrap();
+
+                                    if *recording {
+                                        // Already recording, stop it
+                                        println!("Hotkey pressed (toggle) - stopping recording and transcribing");
+                                        *recording = false;
+                                        handle_recording_complete(
+                                            audio_tx_clone.clone(),
+                                            transcription_tx_clone.clone(),
+                                            app_handle.clone()
+                                        );
+                                    } else {
+                                        // Not recording, start it
+                                        println!("Hotkey pressed (toggle) - starting recording");
+                                        *recording = true;
+                                        let _ = audio_tx_clone.send(AudioCommand::StartRecording);
+                                    }
                                 }
                             }
                         })
                         .build()
                 )?;
 
-                // Register the shortcut
+                // Register both shortcuts
                 app.global_shortcut().register(shortcut)?;
                 println!("Global shortcut registered: Ctrl+Alt+R");
+
+                // Register cancel shortcut
+                use std::str::FromStr;
+                use tauri_plugin_global_shortcut::Shortcut;
+                if let Ok(cancel_shortcut) = Shortcut::from_str(&settings.cancel_key) {
+                    app.global_shortcut().register(cancel_shortcut)?;
+                    println!("Cancel shortcut registered: {}", settings.cancel_key);
+                }
 
                 // Create system tray menu
                 let settings = MenuItemBuilder::with_id("settings", "Paramètres").build(app)?;
@@ -437,7 +679,11 @@ pub fn run() {
             auto_paste,
             copy_to_clipboard,
             get_settings,
-            save_settings
+            save_settings,
+            update_hotkey,
+            update_cancel_key,
+            reload_model,
+            get_audio_devices
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
