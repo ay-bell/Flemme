@@ -33,6 +33,7 @@
   let audioDevices = $state<AudioDevice[]>([]);
   let loading = $state(true);
   let saveStatus = $state("");
+  let isInitialLoad = $state(true);
   let customWords = $state<string[]>(["Aymeric Bellavoine", "PPAT", "Harmonie Mutuelle"]);
   let newWord = $state("");
   let isEditingHotkey = $state(false);
@@ -103,12 +104,16 @@
       console.error("Failed to load settings:", error);
     } finally {
       loading = false;
+      // Mark initial load as complete after a short delay to ensure all reactive updates are done
+      setTimeout(() => {
+        isInitialLoad = false;
+      }, 100);
     }
   });
 
   // Auto-save when language, autoPaste, pushToTalk, or selectedDevice changes
   $effect(() => {
-    if (loading) return; // Don't save during initial load
+    if (loading || isInitialLoad) return; // Don't save during initial load
 
     // Auto-save settings changes
     (async () => {
@@ -397,17 +402,17 @@
         <h2 class="section-title">Configuration</h2>
 
         <div class="setting-group">
-          <label class="setting-label">Démarrer un enregistrement</label>
+          <span class="setting-label">Démarrer un enregistrement</span>
           {#if isEditingHotkey}
             <div class="hotkey-editor">
               <input
+                id="hotkey-input"
                 type="text"
                 class="hotkey-input"
                 placeholder="Appuyez sur les touches..."
                 readonly
                 value={capturedKeys.length > 0 ? capturedKeys.join(" + ") : ""}
                 onkeydown={handleHotkeyCapture}
-                autofocus
               />
               <div class="hotkey-editor-buttons">
                 <Button onclick={saveHotkey} size="sm">Valider</Button>
@@ -428,17 +433,17 @@
         </div>
 
         <div class="setting-group {pushToTalk ? 'disabled' : ''}">
-          <label class="setting-label">Annuler un enregistrement</label>
+          <span class="setting-label">Annuler un enregistrement</span>
           {#if isEditingCancelKey}
             <div class="hotkey-editor">
               <input
+                id="cancel-key-input"
                 type="text"
                 class="hotkey-input"
                 placeholder="Appuyez sur les touches..."
                 readonly
                 value={capturedCancelKeys.length > 0 ? capturedCancelKeys.join(" + ") : ""}
                 onkeydown={handleCancelKeyCapture}
-                autofocus
               />
               <div class="hotkey-editor-buttons">
                 <Button onclick={saveCancelKey} size="sm">Valider</Button>
@@ -463,21 +468,21 @@
 
         <div class="setting-group">
           <div class="setting-row">
-            <label class="setting-label">Collage automatique</label>
-            <Switch bind:checked={autoPaste} />
+            <label class="setting-label" for="auto-paste-switch">Collage automatique</label>
+            <Switch id="auto-paste-switch" bind:checked={autoPaste} />
           </div>
         </div>
 
         <div class="setting-group">
           <div class="setting-row">
-            <label class="setting-label">Push To Talk</label>
-            <Switch bind:checked={pushToTalk} />
+            <label class="setting-label" for="push-to-talk-switch">Push To Talk</label>
+            <Switch id="push-to-talk-switch" bind:checked={pushToTalk} />
           </div>
         </div>
 
         <div class="setting-group">
-          <label class="setting-label">Langue</label>
-          <select class="select-input" bind:value={language}>
+          <label class="setting-label" for="language-select">Langue</label>
+          <select id="language-select" class="select-input" bind:value={language}>
             {#each languages as lang}
               <option value={lang.value}>{lang.label}</option>
             {/each}
@@ -485,9 +490,9 @@
         </div>
 
         <div class="setting-group">
-          <label class="setting-label">Matériel</label>
+          <label class="setting-label" for="device-select">Matériel</label>
           <div class="device-selector-row">
-            <select class="select-input" bind:value={selectedDevice}>
+            <select id="device-select" class="select-input" bind:value={selectedDevice}>
               <option value={null}>Microphone par défaut</option>
               {#each audioDevices as device}
                 <option value={device.name}>
@@ -559,12 +564,12 @@
               </label>
 
               <div class="model-actions">
-                <button class="icon-button">
+                <button class="icon-button" aria-label="Télécharger le modèle">
                   <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                     <path d="M8 2V14M2 8H14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
                   </svg>
                 </button>
-                <button class="icon-button delete">
+                <button class="icon-button delete" aria-label="Supprimer le modèle">
                   <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                     <path d="M2 4H14M6 4V2H10V4M3 4V14H13V4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
                   </svg>
@@ -596,7 +601,7 @@
           {#each customWords as word}
             <div class="word-tag">
               <span>{word}</span>
-              <button class="remove-word" onclick={() => removeCustomWord(word)}>
+              <button class="remove-word" onclick={() => removeCustomWord(word)} aria-label="Supprimer {word}">
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
                   <path d="M2 2L10 10M2 10L10 2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
                 </svg>
