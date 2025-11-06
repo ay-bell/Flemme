@@ -139,8 +139,17 @@ impl TranscriptionWorker {
                     }
 
                     println!("TranscriptionWorker: Starting transcription...");
+
+                    // Load custom words from settings for contextual biasing
+                    let settings = config::AppSettings::load().unwrap_or_default();
+                    let custom_words = if !settings.custom_words.is_empty() {
+                        Some(settings.custom_words.as_slice())
+                    } else {
+                        None
+                    };
+
                     let result = if let Some(ref engine) = self.engine {
-                        engine.transcribe(&audio, language.as_deref())
+                        engine.transcribe(&audio, language.as_deref(), custom_words)
                     } else {
                         Err("Transcription engine not initialized".to_string())
                     };
@@ -375,6 +384,44 @@ fn reload_model(state: State<'_, AppState>, model_name: String) -> Result<(), St
     reply_rx
         .recv()
         .map_err(|e| format!("Failed to receive reply: {}", e))?
+}
+
+#[tauri::command]
+fn add_custom_word(word: String) -> Result<(), String> {
+    let mut settings = config::AppSettings::load()?;
+
+    // Avoid duplicates
+    if !settings.custom_words.contains(&word) {
+        settings.custom_words.push(word);
+        settings.save()?;
+        println!("Added custom word, total: {}", settings.custom_words.len());
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn remove_custom_word(word: String) -> Result<(), String> {
+    let mut settings = config::AppSettings::load()?;
+    settings.custom_words.retain(|w| w != &word);
+    settings.save()?;
+    println!("Removed custom word, remaining: {}", settings.custom_words.len());
+    Ok(())
+}
+
+#[tauri::command]
+fn clear_custom_words() -> Result<(), String> {
+    let mut settings = config::AppSettings::load()?;
+    settings.custom_words.clear();
+    settings.save()?;
+    println!("Cleared all custom words");
+    Ok(())
+}
+
+#[tauri::command]
+fn get_custom_words() -> Result<Vec<String>, String> {
+    let settings = config::AppSettings::load()?;
+    Ok(settings.custom_words)
 }
 
 /// Handle the complete workflow when recording finishes
@@ -683,7 +730,11 @@ pub fn run() {
             update_hotkey,
             update_cancel_key,
             reload_model,
-            get_audio_devices
+            get_audio_devices,
+            add_custom_word,
+            remove_custom_word,
+            clear_custom_words,
+            get_custom_words
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

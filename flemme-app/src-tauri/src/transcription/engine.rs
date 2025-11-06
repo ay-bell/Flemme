@@ -34,7 +34,8 @@ impl TranscriptionEngine {
     /// Transcribe audio samples to text
     /// Audio must be mono 16kHz f32 samples
     /// language: ISO 639-1 code (e.g., "fr", "en", "es") or None for auto-detect
-    pub fn transcribe(&self, audio_data: &[f32], language: Option<&str>) -> Result<String, String> {
+    /// custom_words: Optional list of custom words/phrases for contextual biasing
+    pub fn transcribe(&self, audio_data: &[f32], language: Option<&str>, custom_words: Option<&[String]>) -> Result<String, String> {
         // Validate input
         if audio_data.is_empty() {
             return Err("Audio data is empty".to_string());
@@ -84,6 +85,15 @@ impl TranscriptionEngine {
         params.set_print_progress(false);
         params.set_print_realtime(false);
         params.set_print_timestamps(false);
+
+        // Set initial prompt for contextual biasing
+        if let Some(words) = custom_words {
+            if !words.is_empty() {
+                let prompt = words.join(", ");
+                println!("Using contextual biasing with {} words: {}", words.len(), prompt);
+                params.set_initial_prompt(&prompt);
+            }
+        }
 
         // Performance optimizations
         let n_threads = num_cpus::get() as i32;

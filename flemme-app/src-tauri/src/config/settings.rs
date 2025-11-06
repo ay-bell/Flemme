@@ -13,6 +13,8 @@ pub struct AppSettings {
     pub push_to_talk: bool,
     pub cancel_key: String,
     pub device_name: Option<String>,
+    #[serde(default)]
+    pub custom_words: Vec<String>,
 }
 
 impl Default for AppSettings {
@@ -25,6 +27,11 @@ impl Default for AppSettings {
             push_to_talk: false, // Default to toggle mode
             cancel_key: String::from("Escape"),
             device_name: None, // None means use default device
+            custom_words: vec![
+                String::from("Aymeric Bellavoine"),
+                String::from("PPAT"),
+                String::from("Harmonie Mutuelle"),
+            ],
         }
     }
 }

@@ -100,6 +100,15 @@
       } catch (error) {
         console.error("Failed to load audio devices:", error);
       }
+
+      // Load custom words
+      try {
+        const words = await invoke<string[]>("get_custom_words");
+        customWords = words;
+        console.log("Custom words loaded:", customWords);
+      } catch (error) {
+        console.error("Failed to load custom words:", error);
+      }
     } catch (error) {
       console.error("Failed to load settings:", error);
     } finally {
@@ -173,19 +182,44 @@
     }
   }
 
-  function addCustomWord() {
-    if (newWord.trim() && !customWords.includes(newWord.trim())) {
-      customWords = [...customWords, newWord.trim()];
-      newWord = "";
+  async function addCustomWord() {
+    const trimmedWord = newWord.trim();
+    if (trimmedWord && !customWords.includes(trimmedWord)) {
+      try {
+        await invoke("add_custom_word", { word: trimmedWord });
+        customWords = [...customWords, trimmedWord];
+        newWord = "";
+        console.log("Custom word added:", trimmedWord);
+      } catch (error) {
+        console.error("Failed to add custom word:", error);
+        saveStatus = "Erreur lors de l'ajout du mot";
+        setTimeout(() => saveStatus = "", 2000);
+      }
     }
   }
 
-  function removeCustomWord(word: string) {
-    customWords = customWords.filter(w => w !== word);
+  async function removeCustomWord(word: string) {
+    try {
+      await invoke("remove_custom_word", { word });
+      customWords = customWords.filter(w => w !== word);
+      console.log("Custom word removed:", word);
+    } catch (error) {
+      console.error("Failed to remove custom word:", error);
+      saveStatus = "Erreur lors de la suppression";
+      setTimeout(() => saveStatus = "", 2000);
+    }
   }
 
-  function clearAllWords() {
-    customWords = [];
+  async function clearAllWords() {
+    try {
+      await invoke("clear_custom_words");
+      customWords = [];
+      console.log("All custom words cleared");
+    } catch (error) {
+      console.error("Failed to clear custom words:", error);
+      saveStatus = "Erreur lors de la suppression";
+      setTimeout(() => saveStatus = "", 2000);
+    }
   }
 
   function startEditingHotkey() {
