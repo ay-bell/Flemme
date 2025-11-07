@@ -507,10 +507,11 @@
 
   function getModelLabel(modelName: string): string {
     const modelMap: Record<string, string> = {
-      "ggml-tiny.bin": "Tiny",
       "ggml-base.bin": "Base",
       "ggml-small.bin": "Small",
-      "ggml-medium.bin": "Medium"
+      "ggml-medium.bin": "Medium",
+      "ggml-large-v2.bin": "Large V2",
+      "ggml-large-v3-turbo.bin": "Large V3 Turbo"
     };
     return modelMap[modelName] || modelName;
   }
@@ -692,8 +693,8 @@
             {@const modelSize = formatFileSize(model.size_mb)}
             {@const isDownloading = downloadingModel === model.name}
             {@const progress = downloadProgress[model.name] || 0}
-            {@const precisionMap: Record<string, number> = {"Tiny": 2, "Base": 3, "Small": 4, "Medium": 5}}
-            {@const speedMap: Record<string, number> = {"Tiny": 5, "Base": 4, "Small": 3, "Medium": 2}}
+            {@const precisionMap: Record<string, number> = {"Base": 3, "Small": 4, "Medium": 5, "Large V2": 5, "Large V3 Turbo": 5}}
+            {@const speedMap: Record<string, number> = {"Base": 5, "Small": 4, "Medium": 2, "Large V2": 1, "Large V3 Turbo": 3}}
             {@const precision = precisionMap[modelLabel] || 3}
             {@const speed = speedMap[modelLabel] || 3}
 

@@ -447,10 +447,11 @@ fn list_available_models() -> Result<Vec<ModelInfo>, String> {
 
     // List of available Whisper models with download URLs
     let available_models = vec![
-        ("ggml-tiny.bin", 75.0, "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin"),
         ("ggml-base.bin", 142.0, "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin"),
         ("ggml-small.bin", 466.0, "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin"),
         ("ggml-medium.bin", 1520.0, "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin"),
+        ("ggml-large-v2.bin", 2940.0, "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v2.bin"),
+        ("ggml-large-v3-turbo.bin", 1540.0, "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin"),
     ];
 
     let mut result = Vec::new();
