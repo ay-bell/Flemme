@@ -11,7 +11,7 @@ use clipboard::ClipboardManager;
 use hotkey::HotkeyListener;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, State};
 
 // Audio command messages
 pub enum AudioCommand {
@@ -424,6 +424,147 @@ fn get_custom_words() -> Result<Vec<String>, String> {
     Ok(settings.custom_words)
 }
 
+#[derive(serde::Serialize, Clone)]
+struct ModelInfo {
+    name: String,
+    size_mb: f64,
+    is_downloaded: bool,
+    download_url: String,
+}
+
+#[tauri::command]
+fn list_available_models() -> Result<Vec<ModelInfo>, String> {
+    let models_dir = dirs::data_dir()
+        .ok_or_else(|| "Failed to get data directory".to_string())?
+        .join("Flemme")
+        .join("models");
+
+    // Create models directory if it doesn't exist
+    if !models_dir.exists() {
+        std::fs::create_dir_all(&models_dir)
+            .map_err(|e| format!("Failed to create models directory: {}", e))?;
+    }
+
+    // List of available Whisper models with download URLs
+    let available_models = vec![
+        ("ggml-tiny.bin", 75.0, "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin"),
+        ("ggml-base.bin", 142.0, "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin"),
+        ("ggml-small.bin", 466.0, "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin"),
+        ("ggml-medium.bin", 1520.0, "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin"),
+    ];
+
+    let mut result = Vec::new();
+    for (name, size_mb, url) in available_models {
+        let model_path = models_dir.join(name);
+        let is_downloaded = model_path.exists();
+
+        result.push(ModelInfo {
+            name: name.to_string(),
+            size_mb,
+            is_downloaded,
+            download_url: url.to_string(),
+        });
+    }
+
+    Ok(result)
+}
+
+#[tauri::command]
+fn delete_model(model_name: String) -> Result<(), String> {
+    let models_dir = dirs::data_dir()
+        .ok_or_else(|| "Failed to get data directory".to_string())?
+        .join("Flemme")
+        .join("models");
+
+    let model_path = models_dir.join(&model_name);
+
+    if !model_path.exists() {
+        return Err(format!("Model '{}' does not exist", model_name));
+    }
+
+    std::fs::remove_file(&model_path)
+        .map_err(|e| format!("Failed to delete model '{}': {}", model_name, e))?;
+
+    println!("Model '{}' deleted successfully", model_name);
+    Ok(())
+}
+
+#[derive(Clone, serde::Serialize)]
+struct DownloadProgress {
+    model_name: String,
+    downloaded_bytes: u64,
+    total_bytes: u64,
+    percentage: f64,
+}
+
+#[tauri::command]
+async fn download_model(
+    app: AppHandle,
+    model_name: String,
+    download_url: String,
+) -> Result<(), String> {
+    use std::io::Write;
+
+    let models_dir = dirs::data_dir()
+        .ok_or_else(|| "Failed to get data directory".to_string())?
+        .join("Flemme")
+        .join("models");
+
+    // Create models directory if it doesn't exist
+    if !models_dir.exists() {
+        std::fs::create_dir_all(&models_dir)
+            .map_err(|e| format!("Failed to create models directory: {}", e))?;
+    }
+
+    let model_path = models_dir.join(&model_name);
+
+    println!("Downloading model '{}' from {}", model_name, download_url);
+
+    // Download with progress tracking
+    let client = reqwest::Client::new();
+    let response = client
+        .get(&download_url)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to download: {}", e))?;
+
+    let total_bytes = response.content_length().unwrap_or(0);
+    let mut downloaded_bytes = 0u64;
+
+    let mut file = std::fs::File::create(&model_path)
+        .map_err(|e| format!("Failed to create file: {}", e))?;
+
+    let mut stream = response.bytes_stream();
+    use futures_util::StreamExt;
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| format!("Download error: {}", e))?;
+        file.write_all(&chunk)
+            .map_err(|e| format!("Failed to write to file: {}", e))?;
+
+        downloaded_bytes += chunk.len() as u64;
+        let percentage = if total_bytes > 0 {
+            (downloaded_bytes as f64 / total_bytes as f64) * 100.0
+        } else {
+            0.0
+        };
+
+        // Emit progress event
+        let _ = app.emit(
+            "download-progress",
+            DownloadProgress {
+                model_name: model_name.clone(),
+                downloaded_bytes,
+                total_bytes,
+                percentage,
+            },
+        );
+    }
+
+    println!("Model '{}' downloaded successfully", model_name);
+    Ok(())
+}
+
 /// Handle the complete workflow when recording finishes
 /// Stop recording → Transcribe → Auto-paste
 fn handle_recording_complete(
@@ -752,7 +893,10 @@ pub fn run() {
             add_custom_word,
             remove_custom_word,
             clear_custom_words,
-            get_custom_words
+            get_custom_words,
+            list_available_models,
+            download_model,
+            delete_model
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
