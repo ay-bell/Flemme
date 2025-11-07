@@ -76,10 +76,12 @@
 
     listen<DownloadProgress>("download-progress", (event) => {
       const progress = event.payload;
+      console.log("Download progress event received:", progress);
       downloadProgress.set(progress.model_name, progress.percentage);
       downloadProgress = downloadProgress; // Trigger reactivity
     }).then((unlistenFn) => {
       unlisten = unlistenFn;
+      console.log("Download progress listener registered");
     });
 
     (async () => {

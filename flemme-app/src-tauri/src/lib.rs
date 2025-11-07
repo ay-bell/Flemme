@@ -530,6 +530,7 @@ async fn download_model(
 
     let total_bytes = response.content_length().unwrap_or(0);
     let mut downloaded_bytes = 0u64;
+    let mut last_emitted_percentage = 0.0;
 
     let mut file = std::fs::File::create(&model_path)
         .map_err(|e| format!("Failed to create file: {}", e))?;
@@ -549,16 +550,20 @@ async fn download_model(
             0.0
         };
 
-        // Emit progress event
-        let _ = app.emit(
-            "download-progress",
-            DownloadProgress {
-                model_name: model_name.clone(),
-                downloaded_bytes,
-                total_bytes,
-                percentage,
-            },
-        );
+        // Emit progress event only if percentage changed by at least 1%
+        if (percentage - last_emitted_percentage).abs() >= 1.0 || downloaded_bytes == total_bytes {
+            println!("Download progress: {:.1}% ({}/{} bytes)", percentage, downloaded_bytes, total_bytes);
+            let _ = app.emit(
+                "download-progress",
+                DownloadProgress {
+                    model_name: model_name.clone(),
+                    downloaded_bytes,
+                    total_bytes,
+                    percentage,
+                },
+            );
+            last_emitted_percentage = percentage;
+        }
     }
 
     println!("Model '{}' downloaded successfully", model_name);
