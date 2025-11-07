@@ -677,6 +677,10 @@ pub fn run() {
                     println!("Cancel shortcut registered: {}", settings.cancel_key);
                 }
 
+                // Clone for menu event handler
+                let audio_tx_for_quit = audio_tx.clone();
+                let transcription_tx_for_quit = transcription_tx.clone();
+
                 // Create system tray menu
                 let settings = MenuItemBuilder::with_id("settings", "Paramètres").build(app)?;
                 let quit = MenuItemBuilder::with_id("quit", "Quitter").build(app)?;
@@ -698,6 +702,13 @@ pub fn run() {
                                 }
                             }
                             "quit" => {
+                                // Send shutdown commands to worker threads for graceful shutdown
+                                println!("Shutting down worker threads...");
+                                let _ = audio_tx_for_quit.send(AudioCommand::Shutdown);
+                                let _ = transcription_tx_for_quit.send(TranscriptionCommand::Shutdown);
+                                // Give threads a moment to cleanup
+                                std::thread::sleep(std::time::Duration::from_millis(100));
+                                println!("Worker threads shutdown complete");
                                 app.exit(0);
                             }
                             _ => {}
