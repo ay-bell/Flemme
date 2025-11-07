@@ -14,6 +14,7 @@
     push_to_talk: boolean;
     cancel_key: string;
     device_name: string | null;
+    custom_words: string[];
   }
 
   interface AudioDevice {
@@ -135,7 +136,8 @@
             auto_paste: autoPaste,
             model_name: selectedModel,
             push_to_talk: pushToTalk,
-            device_name: selectedDevice
+            device_name: selectedDevice,
+            custom_words: customWords
           }
         });
         console.log("Settings auto-saved");
@@ -155,9 +157,13 @@
       await invoke("save_settings", {
         settings: {
           hotkey,
+          cancel_key: cancelKey,
           language,
           auto_paste: autoPaste,
-          model_name: selectedModel
+          model_name: selectedModel,
+          push_to_talk: pushToTalk,
+          device_name: selectedDevice,
+          custom_words: customWords
         }
       });
 

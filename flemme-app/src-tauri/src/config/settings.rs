@@ -65,8 +65,17 @@ impl AppSettings {
         let contents = fs::read_to_string(&path)
             .map_err(|e| format!("Failed to read settings file: {}", e))?;
 
-        let settings: AppSettings = serde_json::from_str(&contents)
+        let mut settings: AppSettings = serde_json::from_str(&contents)
             .map_err(|e| format!("Failed to parse settings: {}", e))?;
+
+        // If custom_words is empty and this is a fresh migration, initialize with defaults
+        if settings.custom_words.is_empty() {
+            let defaults = Self::default();
+            settings.custom_words = defaults.custom_words;
+            println!("Initialized custom_words with defaults");
+            // Save the updated settings
+            let _ = settings.save();
+        }
 
         println!("Settings loaded from: {:?}", path);
         Ok(settings)
