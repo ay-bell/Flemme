@@ -724,6 +724,38 @@ pub fn run() {
                 use tauri::menu::{MenuBuilder, MenuItemBuilder};
                 use tauri::tray::{TrayIconBuilder, TrayIconEvent};
                 use tauri::Manager;
+                use tauri::{WebviewUrl, WebviewWindowBuilder};
+
+                // Create overlay window for recording indicator
+                let indicator_window = WebviewWindowBuilder::new(
+                    app,
+                    "indicator",
+                    WebviewUrl::App("indicator".into())
+                )
+                .title("Recording Indicator")
+                .inner_size(500.0, 100.0)
+                .decorations(false)
+                .transparent(true)
+                .always_on_top(true)
+                .skip_taskbar(true)
+                .resizable(false)
+                .visible(false)  // Hidden by default
+                .build()
+                .expect("Failed to create indicator window");
+
+                // Position window at bottom center of screen
+                if let Ok(monitor) = indicator_window.current_monitor() {
+                    if let Some(monitor) = monitor {
+                        let screen_size = monitor.size();
+                        let window_size = indicator_window.outer_size().unwrap();
+
+                        // Center horizontally, 100px from bottom
+                        let x = (screen_size.width as i32 - window_size.width as i32) / 2;
+                        let y = screen_size.height as i32 - window_size.height as i32 - 100;
+
+                        let _ = indicator_window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
+                    }
+                }
 
                 let shortcut = HotkeyListener::get_record_shortcut();
                 let audio_tx_clone = audio_tx.clone();
@@ -762,6 +794,12 @@ pub fn run() {
                                         if *recording {
                                             println!("Cancel key pressed - stopping recording without transcription");
                                             *recording = false;
+                                            let _ = _app.emit("recording-stopped", ());
+
+                                            // Hide indicator window
+                                            if let Some(window) = _app.get_webview_window("indicator") {
+                                                let _ = window.hide();
+                                            }
 
                                             // Stop recording but don't transcribe
                                             let (reply_tx, _reply_rx) = mpsc::channel();
@@ -779,9 +817,23 @@ pub fn run() {
                                     ShortcutState::Pressed => {
                                         println!("Hotkey pressed (push-to-talk) - starting recording");
                                         let _ = audio_tx_clone.send(AudioCommand::StartRecording);
+                                        let _ = app_handle.emit("recording-started", ());
+
+                                        // Show indicator window
+                                        if let Some(window) = _app.get_webview_window("indicator") {
+                                            let _ = window.show();
+                                            let _ = window.set_focus();
+                                        }
                                     }
                                     ShortcutState::Released => {
                                         println!("Hotkey released (push-to-talk) - stopping recording and transcribing");
+                                        let _ = app_handle.emit("recording-stopped", ());
+
+                                        // Hide indicator window
+                                        if let Some(window) = _app.get_webview_window("indicator") {
+                                            let _ = window.hide();
+                                        }
+
                                         handle_recording_complete(
                                             audio_tx_clone.clone(),
                                             transcription_tx_clone.clone(),
@@ -798,6 +850,13 @@ pub fn run() {
                                         // Already recording, stop it
                                         println!("Hotkey pressed (toggle) - stopping recording and transcribing");
                                         *recording = false;
+                                        let _ = app_handle.emit("recording-stopped", ());
+
+                                        // Hide indicator window
+                                        if let Some(window) = _app.get_webview_window("indicator") {
+                                            let _ = window.hide();
+                                        }
+
                                         handle_recording_complete(
                                             audio_tx_clone.clone(),
                                             transcription_tx_clone.clone(),
@@ -807,7 +866,14 @@ pub fn run() {
                                         // Not recording, start it
                                         println!("Hotkey pressed (toggle) - starting recording");
                                         *recording = true;
+                                        let _ = app_handle.emit("recording-started", ());
                                         let _ = audio_tx_clone.send(AudioCommand::StartRecording);
+
+                                        // Show indicator window
+                                        if let Some(window) = _app.get_webview_window("indicator") {
+                                            let _ = window.show();
+                                            let _ = window.set_focus();
+                                        }
                                     }
                                 }
                             }
