@@ -706,8 +706,15 @@ pub fn run() {
                                 println!("Shutting down worker threads...");
                                 let _ = audio_tx_for_quit.send(AudioCommand::Shutdown);
                                 let _ = transcription_tx_for_quit.send(TranscriptionCommand::Shutdown);
-                                // Give threads a moment to cleanup
-                                std::thread::sleep(std::time::Duration::from_millis(100));
+
+                                // Close all windows first (fixes Chrome_WidgetWin_0 error)
+                                let windows: Vec<_> = app.webview_windows().into_values().collect();
+                                for window in windows {
+                                    let _ = window.close();
+                                }
+
+                                // Give threads and webview time to cleanup
+                                std::thread::sleep(std::time::Duration::from_millis(200));
                                 println!("Worker threads shutdown complete");
                                 app.exit(0);
                             }
