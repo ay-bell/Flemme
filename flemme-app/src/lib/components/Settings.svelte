@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
+  import { listen } from "@tauri-apps/api/event";
   import { Switch } from "$lib/components/ui/switch";
   import { Button } from "$lib/components/ui/button";
   import { Badge } from "$lib/components/ui/badge";
@@ -20,6 +21,20 @@
   interface AudioDevice {
     name: string;
     is_default: boolean;
+  }
+
+  interface ModelInfo {
+    name: string;
+    size_mb: number;
+    is_downloaded: boolean;
+    download_url: string;
+  }
+
+  interface DownloadProgress {
+    model_name: string;
+    downloaded_bytes: number;
+    total_bytes: number;
+    percentage: number;
   }
 
   // Settings state
@@ -42,6 +57,11 @@
   let capturedKeys = $state<string[]>([]);
   let capturedCancelKeys = $state<string[]>([]);
 
+  // Model management state
+  let availableModels = $state<ModelInfo[]>([]);
+  let downloadingModel = $state<string | null>(null);
+  let downloadProgress = $state<Map<string, number>>(new Map());
+
   const languages = [
     { value: "fr", label: "Français" },
     { value: "en", label: "English" },
@@ -49,40 +69,21 @@
     { value: "de", label: "Deutsch" }
   ];
 
-  const models = [
-    {
-      value: "ggml-tiny.bin",
-      label: "Tiny",
-      size: "75 MB",
-      precision: 2,
-      speed: 5
-    },
-    {
-      value: "ggml-base.bin",
-      label: "Base",
-      size: "142 MB",
-      precision: 3,
-      speed: 4
-    },
-    {
-      value: "ggml-small.bin",
-      label: "Small",
-      size: "466 MB",
-      precision: 4,
-      speed: 3
-    },
-    {
-      value: "ggml-medium.bin",
-      label: "Medium",
-      size: "1.5 GB",
-      precision: 5,
-      speed: 2
-    }
-  ];
-
   // Load settings on mount
-  onMount(async () => {
-    try {
+  onMount(() => {
+    // Listen to download progress events
+    let unlisten: (() => void) | undefined;
+
+    listen<DownloadProgress>("download-progress", (event) => {
+      const progress = event.payload;
+      downloadProgress.set(progress.model_name, progress.percentage);
+      downloadProgress = downloadProgress; // Trigger reactivity
+    }).then((unlistenFn) => {
+      unlisten = unlistenFn;
+    });
+
+    (async () => {
+      try {
       const settings = await invoke<AppSettings>("get_settings");
       hotkey = settings.hotkey;
       cancelKey = settings.cancel_key;
@@ -110,15 +111,32 @@
       } catch (error) {
         console.error("Failed to load custom words:", error);
       }
-    } catch (error) {
-      console.error("Failed to load settings:", error);
-    } finally {
-      loading = false;
-      // Mark initial load as complete after a short delay to ensure all reactive updates are done
-      setTimeout(() => {
-        isInitialLoad = false;
-      }, 100);
-    }
+
+      // Load available models
+      try {
+        const models = await invoke<ModelInfo[]>("list_available_models");
+        availableModels = models;
+        console.log("Available models loaded:", availableModels);
+      } catch (error) {
+        console.error("Failed to load available models:", error);
+      }
+      } catch (error) {
+        console.error("Failed to load settings:", error);
+      } finally {
+        loading = false;
+        // Mark initial load as complete after a short delay to ensure all reactive updates are done
+        setTimeout(() => {
+          isInitialLoad = false;
+        }, 100);
+      }
+    })();
+
+    // Cleanup listener on component unmount
+    return () => {
+      if (unlisten) {
+        unlisten();
+      }
+    };
   });
 
   // Auto-save when language, autoPaste, pushToTalk, or selectedDevice changes
@@ -399,6 +417,75 @@
       setTimeout(() => saveStatus = "", 2000);
     }
   }
+
+  async function downloadModel(modelName: string, downloadUrl: string) {
+    try {
+      downloadingModel = modelName;
+      downloadProgress.set(modelName, 0);
+      downloadProgress = downloadProgress; // Trigger reactivity
+
+      await invoke("download_model", {
+        modelName,
+        downloadUrl
+      });
+
+      // Refresh the models list to update download status
+      const models = await invoke<ModelInfo[]>("list_available_models");
+      availableModels = models;
+
+      downloadingModel = null;
+      downloadProgress.delete(modelName);
+      downloadProgress = downloadProgress; // Trigger reactivity
+
+      saveStatus = `Modèle ${modelName} téléchargé avec succès!`;
+      setTimeout(() => saveStatus = "", 3000);
+    } catch (error) {
+      console.error("Failed to download model:", error);
+      downloadingModel = null;
+      downloadProgress.delete(modelName);
+      downloadProgress = downloadProgress; // Trigger reactivity
+      saveStatus = "Erreur lors du téléchargement: " + error;
+      setTimeout(() => saveStatus = "", 3000);
+    }
+  }
+
+  async function deleteModel(modelName: string) {
+    if (!confirm(`Êtes-vous sûr de vouloir supprimer le modèle ${modelName} ?`)) {
+      return;
+    }
+
+    try {
+      await invoke("delete_model", { modelName });
+
+      // Refresh the models list to update download status
+      const models = await invoke<ModelInfo[]>("list_available_models");
+      availableModels = models;
+
+      saveStatus = `Modèle ${modelName} supprimé avec succès!`;
+      setTimeout(() => saveStatus = "", 3000);
+    } catch (error) {
+      console.error("Failed to delete model:", error);
+      saveStatus = "Erreur lors de la suppression: " + error;
+      setTimeout(() => saveStatus = "", 3000);
+    }
+  }
+
+  function getModelLabel(modelName: string): string {
+    const modelMap: Record<string, string> = {
+      "ggml-tiny.bin": "Tiny",
+      "ggml-base.bin": "Base",
+      "ggml-small.bin": "Small",
+      "ggml-medium.bin": "Medium"
+    };
+    return modelMap[modelName] || modelName;
+  }
+
+  function formatFileSize(sizeMb: number): string {
+    if (sizeMb >= 1000) {
+      return `${(sizeMb / 1000).toFixed(1)} GB`;
+    }
+    return `${Math.round(sizeMb)} MB`;
+  }
 </script>
 
 <div class="app-container">
@@ -565,59 +652,103 @@
         <h2 class="section-title">Modèles disponibles</h2>
 
         <div class="models-list">
-          {#each models as model}
+          {#each availableModels as model}
+            {@const modelLabel = getModelLabel(model.name)}
+            {@const modelSize = formatFileSize(model.size_mb)}
+            {@const isDownloading = downloadingModel === model.name}
+            {@const progress = downloadProgress.get(model.name) || 0}
+            {@const precisionMap: Record<string, number> = {"Tiny": 2, "Base": 3, "Small": 4, "Medium": 5}}
+            {@const speedMap: Record<string, number> = {"Tiny": 5, "Base": 4, "Small": 3, "Medium": 2}}
+            {@const precision = precisionMap[modelLabel] || 3}
+            {@const speed = speedMap[modelLabel] || 3}
+
             <div class="model-item">
               <label class="model-radio">
                 <input
                   type="radio"
                   name="model"
-                  value={model.value}
-                  checked={selectedModel === model.value}
-                  onchange={() => selectedModel = model.value}
+                  value={model.name}
+                  checked={selectedModel === model.name}
+                  disabled={!model.is_downloaded}
+                  onchange={() => selectedModel = model.name}
                 />
                 <div class="model-info">
                   <div class="model-header">
-                    <span class="model-name">{model.label}</span>
-                    <span class="model-size">{model.size}</span>
+                    <div class="model-name-status">
+                      <span class="model-name">{modelLabel}</span>
+                      {#if model.is_downloaded}
+                        <Badge variant="default">Téléchargé</Badge>
+                      {:else if isDownloading}
+                        <Badge variant="secondary">Téléchargement...</Badge>
+                      {:else}
+                        <Badge variant="outline">Non téléchargé</Badge>
+                      {/if}
+                    </div>
+                    <span class="model-size">{modelSize}</span>
                   </div>
 
-                  <div class="model-metrics">
-                    <div class="metric">
-                      <span class="metric-label">Précision</span>
-                      <div class="metric-dots">
-                        {#each Array(5) as _, i}
-                          <span class="dot {i < model.precision ? 'filled' : ''}"></span>
-                        {/each}
-                      </div>
+                  {#if isDownloading}
+                    <div class="progress-bar">
+                      <div class="progress-fill" style="width: {progress}%"></div>
+                      <span class="progress-text">{Math.round(progress)}%</span>
                     </div>
+                  {:else}
+                    <div class="model-metrics">
+                      <div class="metric">
+                        <span class="metric-label">Précision</span>
+                        <div class="metric-dots">
+                          {#each Array(5) as _, i}
+                            <span class="dot {i < precision ? 'filled' : ''}"></span>
+                          {/each}
+                        </div>
+                      </div>
 
-                    <div class="metric">
-                      <span class="metric-label">Rapidité</span>
-                      <div class="metric-dots">
-                        {#each Array(5) as _, i}
-                          <span class="dot {i < model.speed ? 'filled' : ''}"></span>
-                        {/each}
+                      <div class="metric">
+                        <span class="metric-label">Rapidité</span>
+                        <div class="metric-dots">
+                          {#each Array(5) as _, i}
+                            <span class="dot {i < speed ? 'filled' : ''}"></span>
+                          {/each}
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  {/if}
                 </div>
               </label>
 
               <div class="model-actions">
-                <button class="icon-button" aria-label="Télécharger le modèle">
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                    <path d="M8 2V14M2 8H14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                  </svg>
-                </button>
-                <button class="icon-button delete" aria-label="Supprimer le modèle">
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                    <path d="M2 4H14M6 4V2H10V4M3 4V14H13V4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                  </svg>
-                </button>
+                {#if !model.is_downloaded && !isDownloading}
+                  <button
+                    class="icon-button"
+                    aria-label="Télécharger le modèle {modelLabel}"
+                    onclick={() => downloadModel(model.name, model.download_url)}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                      <path d="M8 2V12M8 12L5 9M8 12L11 9M2 14H14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                  </button>
+                {:else if model.is_downloaded}
+                  <button
+                    class="icon-button delete"
+                    aria-label="Supprimer le modèle {modelLabel}"
+                    onclick={() => deleteModel(model.name)}
+                    disabled={selectedModel === model.name}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                      <path d="M2 4H14M6 4V2H10V4M3 4V14H13V4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                  </button>
+                {/if}
               </div>
             </div>
           {/each}
         </div>
+
+        {#if saveStatus}
+          <p class="save-status {saveStatus.includes('succès') ? 'success' : 'error'}">
+            {saveStatus}
+          </p>
+        {/if}
       </div>
     {:else if activeTab === 'vocabulaire'}
       <div class="content-section">
@@ -896,6 +1027,12 @@
     margin-bottom: 12px;
   }
 
+  .model-name-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
   .model-name {
     font-size: 16px;
     font-weight: 500;
@@ -906,6 +1043,35 @@
     font-size: 14px;
     font-weight: 300;
     color: #666;
+  }
+
+  .progress-bar {
+    position: relative;
+    width: 100%;
+    height: 24px;
+    background: #F3F3F3;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  .progress-fill {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    background: linear-gradient(90deg, #4FB094 0%, #3A8B75 100%);
+    transition: width 0.3s ease;
+  }
+
+  .progress-text {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 12px;
+    font-weight: 500;
+    color: #000;
+    z-index: 1;
   }
 
   .model-metrics {
