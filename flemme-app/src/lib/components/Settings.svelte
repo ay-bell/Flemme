@@ -60,7 +60,7 @@
   // Model management state
   let availableModels = $state<ModelInfo[]>([]);
   let downloadingModel = $state<string | null>(null);
-  let downloadProgress = $state<Map<string, number>>(new Map());
+  let downloadProgress = $state<Record<string, number>>({});
 
   const languages = [
     { value: "fr", label: "Français" },
@@ -77,8 +77,10 @@
     listen<DownloadProgress>("download-progress", (event) => {
       const progress = event.payload;
       console.log("Download progress event received:", progress);
-      downloadProgress.set(progress.model_name, progress.percentage);
-      downloadProgress = downloadProgress; // Trigger reactivity
+      downloadProgress = {
+        ...downloadProgress,
+        [progress.model_name]: progress.percentage
+      };
     }).then((unlistenFn) => {
       unlisten = unlistenFn;
       console.log("Download progress listener registered");
@@ -455,8 +457,7 @@
   async function downloadModel(modelName: string, downloadUrl: string) {
     try {
       downloadingModel = modelName;
-      downloadProgress.set(modelName, 0);
-      downloadProgress = downloadProgress; // Trigger reactivity
+      downloadProgress = { ...downloadProgress, [modelName]: 0 };
 
       await invoke("download_model", {
         modelName,
@@ -468,16 +469,16 @@
       availableModels = models;
 
       downloadingModel = null;
-      downloadProgress.delete(modelName);
-      downloadProgress = downloadProgress; // Trigger reactivity
+      const { [modelName]: _, ...rest } = downloadProgress;
+      downloadProgress = rest;
 
       saveStatus = `Modèle ${modelName} téléchargé avec succès!`;
       setTimeout(() => saveStatus = "", 3000);
     } catch (error) {
       console.error("Failed to download model:", error);
       downloadingModel = null;
-      downloadProgress.delete(modelName);
-      downloadProgress = downloadProgress; // Trigger reactivity
+      const { [modelName]: _, ...rest } = downloadProgress;
+      downloadProgress = rest;
       saveStatus = "Erreur lors du téléchargement: " + error;
       setTimeout(() => saveStatus = "", 3000);
     }
@@ -690,7 +691,7 @@
             {@const modelLabel = getModelLabel(model.name)}
             {@const modelSize = formatFileSize(model.size_mb)}
             {@const isDownloading = downloadingModel === model.name}
-            {@const progress = downloadProgress.get(model.name) || 0}
+            {@const progress = downloadProgress[model.name] || 0}
             {@const precisionMap: Record<string, number> = {"Tiny": 2, "Base": 3, "Small": 4, "Medium": 5}}
             {@const speedMap: Record<string, number> = {"Tiny": 5, "Base": 4, "Small": 3, "Medium": 2}}
             {@const precision = precisionMap[modelLabel] || 3}
