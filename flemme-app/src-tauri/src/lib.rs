@@ -671,6 +671,9 @@ fn handle_recording_complete(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Load settings to get the configured model
+    let settings = config::AppSettings::load().unwrap_or_default();
+
     // Determine model path
     // Default: look for model in user's AppData/Roaming/Flemme/models/
     let model_path = std::env::var("FLEMME_MODEL_PATH")
@@ -678,11 +681,11 @@ pub fn run() {
             let mut path = dirs::data_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
             path.push("Flemme");
             path.push("models");
-            path.push("ggml-small.bin");
+            path.push(&settings.model_name); // Use the model from settings
             path.to_string_lossy().to_string()
         });
 
-    println!("Using whisper model at: {}", model_path);
+    println!("Using whisper model at: {} (from settings: {})", model_path, settings.model_name);
 
     // Create channel for audio commands
     let (audio_tx, audio_rx) = mpsc::channel();
