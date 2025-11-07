@@ -167,6 +167,38 @@
     })();
   });
 
+  // Track previous model to detect changes
+  let previousModel = $state<string | null>(null);
+
+  // Auto-reload model when selectedModel changes
+  $effect(() => {
+    if (loading || isInitialLoad) return; // Don't reload during initial load
+
+    // Skip if this is the first time we're setting the model
+    if (previousModel === null) {
+      previousModel = selectedModel;
+      return;
+    }
+
+    // If model changed, reload it
+    if (previousModel !== selectedModel) {
+      console.log(`Model changed from ${previousModel} to ${selectedModel}, reloading...`);
+
+      (async () => {
+        try {
+          await invoke("reload_model", { modelName: selectedModel });
+          saveStatus = `Modèle ${getModelLabel(selectedModel)} chargé avec succès!`;
+          setTimeout(() => saveStatus = "", 3000);
+          previousModel = selectedModel; // Update tracking
+        } catch (error) {
+          console.error("Failed to reload model:", error);
+          saveStatus = `Erreur lors du chargement du modèle: ${error}`;
+          setTimeout(() => saveStatus = "", 3000);
+        }
+      })();
+    }
+  });
+
   async function handleSave() {
     try {
       // Get current settings to check if model changed
