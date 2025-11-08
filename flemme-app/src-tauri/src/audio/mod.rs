@@ -3,4 +3,4 @@ pub mod recorder;
 pub mod vad;
 
 pub use recorder::AudioRecorder;
-pub use vad::VoiceActivityDetector;
+pub use vad::{VoiceActivityDetector, SpeechSegment};

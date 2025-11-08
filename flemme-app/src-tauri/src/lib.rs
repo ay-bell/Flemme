@@ -5,7 +5,7 @@ pub mod hotkey;
 pub mod clipboard;
 pub mod config;
 
-use audio::AudioRecorder;
+use audio::{AudioRecorder, VoiceActivityDetector};
 use transcription::TranscriptionEngine;
 use clipboard::ClipboardManager;
 use hotkey::HotkeyListener;
@@ -606,6 +606,67 @@ fn handle_recording_complete(
             return;
         }
 
+        // Apply Voice Activity Detection to filter silence
+        println!("Applying VAD to filter silence...");
+
+        // Store original audio length before moving audio_data
+        let original_audio_len = audio_data.len();
+
+        // Get VAD model path
+        let vad_model_path = dirs::data_dir()
+            .ok_or_else(|| "Failed to get data directory".to_string())
+            .map(|d| d.join("Flemme").join("models").join("silero_vad.onnx"));
+
+        let filtered_audio = match vad_model_path {
+            Ok(model_path) if model_path.exists() => {
+                match VoiceActivityDetector::new_default(&model_path) {
+            Ok(mut vad) => {
+                // Use 512 samples per chunk (32ms at 16kHz) for VAD analysis
+                let chunk_size = 512;
+                let filtered = vad.filter_silence(&audio_data, chunk_size);
+
+                let original_duration = audio_data.len() as f32 / 16000.0;
+                let filtered_duration = filtered.len() as f32 / 16000.0;
+                let silence_removed = original_duration - filtered_duration;
+
+                println!("VAD: Original={:.2}s, Filtered={:.2}s, Silence removed={:.2}s",
+                         original_duration, filtered_duration, silence_removed);
+
+                // If VAD filtered out everything, it means no speech was detected
+                // Return empty audio to skip transcription
+                filtered
+            }
+                    Err(e) => {
+                        eprintln!("Failed to initialize VAD: {}. Using original audio.", e);
+                        audio_data
+                    }
+                }
+            }
+            Ok(model_path) => {
+                eprintln!("VAD model not found at {:?}. Using original audio. Please download the model first.", model_path);
+                audio_data
+            }
+            Err(e) => {
+                eprintln!("Failed to get VAD model path: {}. Using original audio.", e);
+                audio_data
+            }
+        };
+
+        // Check if we still have audio after VAD filtering
+        // If VAD removed everything or most of the audio (>95%), it might be too aggressive
+        let audio_to_transcribe = if filtered_audio.is_empty() {
+            println!("Warning: VAD filtered out all audio. This might be a very short recording or pure silence.");
+            println!("Skipping transcription.");
+            return;
+        } else if filtered_audio.len() < (original_audio_len / 20) {
+            // Less than 5% remains - likely too aggressive, but still try to transcribe
+            println!("Warning: VAD removed >95% of audio ({:.2}s -> {:.2}s). This might be a very short utterance.",
+                     original_audio_len as f32 / 16000.0, filtered_audio.len() as f32 / 16000.0);
+            filtered_audio
+        } else {
+            filtered_audio
+        };
+
         println!("Sending audio to transcription engine...");
 
         // Load settings to get language preference
@@ -615,7 +676,7 @@ fn handle_recording_complete(
         // Transcribe the audio
         let (reply_tx, reply_rx) = mpsc::channel();
         if let Err(e) = transcription_tx.send(TranscriptionCommand::Transcribe {
-            audio: audio_data,
+            audio: audio_to_transcribe,
             language,
             reply: reply_tx,
         }) {
