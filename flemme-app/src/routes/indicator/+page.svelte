@@ -5,7 +5,6 @@
 
   let container: HTMLDivElement;
   let audioMotion: AudioMotionAnalyzer | null = null;
-  let audioContext: AudioContext | null = null;
   let microphone: MediaStreamAudioSourceNode | null = null;
   let isRecording = $state(false);
   let unlisten: UnlistenFn | null = null;
@@ -17,18 +16,16 @@
     // Create AudioMotion analyzer
     try {
       audioMotion = new AudioMotionAnalyzer(container, {
-        mode: 3, // 1/6th octave bands
-        gradient: 'prism',
+        mode: 5, // 1/2 octave bands (30 bands)
         showBgColor: true,
-        bgAlpha: 0.85,
-        overlay: true,
-        showPeaks: true,
+        bgAlpha: 1, // Fond blanc opaque
+        overlay: false,
+        showPeaks: false, // Pas de pics
         showScaleX: false,
         showScaleY: false,
-        smoothing: 0.7,
-        barSpace: 0.3,
-        reflexRatio: 0.3,
-        reflexAlpha: 0.2,
+        smoothing: 0.7, // Bonne réactivité
+        barSpace: 0.4,
+        reflexRatio: 0, // Pas de reflets
         ledBars: false,
         lumiBars: false,
         radial: false,
@@ -36,10 +33,26 @@
         lineWidth: 0,
         maxFreq: 16000,
         minFreq: 30,
-        height: 100,
-        width: 500,
+        height: 64,
+        width: 334,
       });
+
+      // Créer et enregistrer le gradient personnalisé vert (du foncé vers le clair)
+      audioMotion.registerGradient('customGreen', {
+        bgColor: '#ffffff', // Fond blanc
+        colorStops: [
+          { pos: 0, color: '#2D5F4F' },    // Vert foncé (base)
+          { pos: 0.3, color: '#3A7A65' },  // Vert moyen-foncé
+          { pos: 0.7, color: '#45997D' },  // Vert moyen
+          { pos: 1, color: '#4FB094' }     // Vert de la charte (sommet)
+        ]
+      });
+
+      // Appliquer le gradient après l'avoir enregistré
+      audioMotion.gradient = 'customGreen';
+
       console.log('AudioMotion analyzer created successfully');
+      console.log('Gradient applied:', audioMotion.gradient);
     } catch (error) {
       console.error('Failed to create AudioMotion analyzer:', error);
     }
@@ -142,7 +155,7 @@
     margin: 0;
     padding: 0;
     overflow: hidden;
-    background: transparent;
+    background: #ffffff;
   }
 
   .indicator-container {
@@ -151,7 +164,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background: transparent;
+    background: #ffffff;
   }
 
   .analyzer-wrapper {
@@ -162,6 +175,8 @@
     opacity: 0;
     transform: translateY(20px);
     transition: opacity 0.3s ease, transform 0.3s ease;
+    padding: 8px;
+    background: #ffffff;
   }
 
   .analyzer-wrapper.visible {
@@ -170,8 +185,10 @@
   }
 
   .audio-motion-container {
-    width: 500px;
-    height: 100px;
+    width: 334px;
+    height: 64px;
+    border-radius: 8px;
+    overflow: hidden;
   }
 
   .recording-dot {

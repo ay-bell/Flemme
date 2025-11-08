@@ -733,9 +733,9 @@ pub fn run() {
                     WebviewUrl::App("indicator".into())
                 )
                 .title("Recording Indicator")
-                .inner_size(500.0, 100.0)
+                .inner_size(350.0, 80.0)
                 .decorations(false)
-                .transparent(true)
+                .transparent(false)  // Fond blanc opaque
                 .always_on_top(true)
                 .skip_taskbar(true)
                 .resizable(false)
