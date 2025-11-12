@@ -2,6 +2,8 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Device, Stream, StreamConfig};
 use std::sync::{Arc, Mutex};
+use std::cell::RefCell;
+use rubato::{FftFixedIn, Resampler};
 
 pub struct AudioRecorder {
     device: Device,
@@ -9,6 +11,7 @@ pub struct AudioRecorder {
     stream: Option<Stream>,
     buffer: Arc<Mutex<Vec<f32>>>,
     sample_rate: u32,
+    resampler: Option<RefCell<FftFixedIn<f32>>>,
 }
 
 impl AudioRecorder {
@@ -51,12 +54,39 @@ impl AudioRecorder {
             .default_input_config()
             .map_err(|e| format!("Config error: {}", e))?;
 
+        let stream_config: StreamConfig = config.into();
+
+        // Create resampler if device sample rate differs from 16kHz
+        let resampler = if stream_config.sample_rate.0 != 16000 {
+            let chunk_size = 1024; // Process in 1024-sample chunks for good quality/performance balance
+            let sub_chunks = 2; // Number of subchunks for FFT processing
+            match FftFixedIn::<f32>::new(
+                stream_config.sample_rate.0 as usize,
+                16000,
+                chunk_size,
+                sub_chunks,
+                1, // mono (number of channels)
+            ) {
+                Ok(r) => {
+                    println!("Created high-quality FFT resampler: {} Hz -> 16000 Hz", stream_config.sample_rate.0);
+                    Some(RefCell::new(r))
+                }
+                Err(e) => {
+                    eprintln!("Failed to create resampler: {}, will use fallback", e);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         Ok(Self {
             device,
-            config: config.into(),
+            config: stream_config,
             stream: None,
             buffer: Arc::new(Mutex::new(Vec::new())),
             sample_rate: 16000, // Whisper requires 16kHz
+            resampler,
         })
     }
 
@@ -86,12 +116,39 @@ impl AudioRecorder {
             .default_input_config()
             .map_err(|e| format!("Config error: {}", e))?;
 
+        let stream_config: StreamConfig = config.into();
+
+        // Create resampler if device sample rate differs from 16kHz
+        let resampler = if stream_config.sample_rate.0 != 16000 {
+            let chunk_size = 1024; // Process in 1024-sample chunks for good quality/performance balance
+            let sub_chunks = 2; // Number of subchunks for FFT processing
+            match FftFixedIn::<f32>::new(
+                stream_config.sample_rate.0 as usize,
+                16000,
+                chunk_size,
+                sub_chunks,
+                1, // mono (number of channels)
+            ) {
+                Ok(r) => {
+                    println!("Created high-quality FFT resampler: {} Hz -> 16000 Hz", stream_config.sample_rate.0);
+                    Some(RefCell::new(r))
+                }
+                Err(e) => {
+                    eprintln!("Failed to create resampler: {}, will use fallback", e);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         Ok(Self {
             device,
-            config: config.into(),
+            config: stream_config,
             stream: None,
             buffer: Arc::new(Mutex::new(Vec::new())),
             sample_rate: 16000, // Whisper requires 16kHz
+            resampler,
         })
     }
 
@@ -112,10 +169,12 @@ impl AudioRecorder {
                     // Callback called for each audio chunk
                     let mut buf = buffer.lock().unwrap();
 
-                    // Convert to mono if stereo (take left channel)
+                    // Convert to mono if stereo (average both channels for maximum info preservation)
                     if channels == 2 {
                         for i in (0..data.len()).step_by(2) {
-                            buf.push(data[i]);
+                            let left = data[i];
+                            let right = data[i + 1];
+                            buf.push((left + right) / 2.0);
                         }
                     } else {
                         buf.extend_from_slice(data);
@@ -143,10 +202,17 @@ impl AudioRecorder {
 
         println!("Audio recorded: {} samples at {} Hz", audio.len(), self.config.sample_rate.0);
 
-        // Resample to 16kHz if needed
+        // Remove DC offset (improves VAD quality)
+        let mut audio = audio;
+        Self::remove_dc_offset(&mut audio);
+
+        // Normalize audio to full dynamic range (critical for consistent VAD performance)
+        Self::normalize_peak(&mut audio);
+
+        // Resample to 16kHz if needed using high-quality FFT resampler
         if self.config.sample_rate.0 != 16000 {
-            println!("Resampling from {} Hz to 16000 Hz", self.config.sample_rate.0);
-            let resampled = self.resample(&audio, self.config.sample_rate.0, 16000);
+            println!("Resampling from {} Hz to 16000 Hz using FFT resampler", self.config.sample_rate.0);
+            let resampled = self.resample_with_rubato(&audio)?;
             println!("Resampled to {} samples", resampled.len());
             Ok(resampled)
         } else {
@@ -154,24 +220,78 @@ impl AudioRecorder {
         }
     }
 
-    /// Simple linear resampling
-    fn resample(&self, input: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
-        if from_rate == to_rate {
-            return input.to_vec();
+    /// Remove DC offset from audio signal
+    fn remove_dc_offset(samples: &mut [f32]) {
+        if samples.is_empty() {
+            return;
+        }
+        let mean: f32 = samples.iter().sum::<f32>() / samples.len() as f32;
+        for sample in samples.iter_mut() {
+            *sample -= mean;
+        }
+    }
+
+    /// Normalize audio to use full dynamic range (-1.0 to 1.0)
+    /// Uses peak normalization to ensure consistent amplitude for VAD
+    fn normalize_peak(samples: &mut [f32]) {
+        if samples.is_empty() {
+            return;
         }
 
-        let ratio = from_rate as f64 / to_rate as f64;
-        let output_len = (input.len() as f64 / ratio) as usize;
-        let mut output = Vec::with_capacity(output_len);
+        // Find the peak (maximum absolute value)
+        let peak = samples
+            .iter()
+            .map(|s| s.abs())
+            .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+            .unwrap_or(1.0);
 
-        for i in 0..output_len {
-            let src_idx = (i as f64 * ratio) as usize;
-            if src_idx < input.len() {
-                output.push(input[src_idx]);
+        // Only normalize if peak is significant (avoid amplifying pure noise)
+        if peak > 0.001 {
+            // Normalize to 95% of full scale to avoid potential clipping
+            let factor = 0.95 / peak;
+            for sample in samples.iter_mut() {
+                *sample *= factor;
             }
+            println!("Audio normalized: peak={:.4} -> normalized with factor={:.2}", peak, factor);
+        } else {
+            println!("Audio peak too low ({:.6}), skipping normalization (likely silence)", peak);
         }
+    }
 
-        output
+    /// High-quality resampling using Rubato FFT
+    fn resample_with_rubato(&self, input: &[f32]) -> Result<Vec<f32>, String> {
+        if let Some(ref resampler_cell) = self.resampler {
+            let mut resampler = resampler_cell.borrow_mut();
+            let chunk_size = resampler.input_frames_next();
+            let mut output = Vec::new();
+
+            // Process audio in chunks
+            let mut pos = 0;
+            while pos < input.len() {
+                let end = (pos + chunk_size).min(input.len());
+                let chunk = &input[pos..end];
+
+                // Rubato requires Vec<Vec<f32>> format (one vec per channel)
+                let mut chunk_vec = vec![chunk.to_vec()];
+
+                // Handle partial chunks by padding with zeros if needed
+                if chunk.len() < chunk_size {
+                    chunk_vec[0].resize(chunk_size, 0.0);
+                }
+
+                let resampled = resampler
+                    .process(&chunk_vec, None)
+                    .map_err(|e| format!("Resample error: {}", e))?;
+
+                output.extend_from_slice(&resampled[0]);
+                pos = end;
+            }
+
+            Ok(output)
+        } else {
+            // Fallback to simple copy if no resampler
+            Ok(input.to_vec())
+        }
     }
 
     /// Check if currently recording

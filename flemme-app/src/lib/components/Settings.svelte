@@ -18,6 +18,20 @@
     custom_words: string[];
   }
 
+  interface LlmModel {
+    id: string;
+    name: string;
+    api_url: string;
+    model_name: string;
+  }
+
+  interface ExecutionMode {
+    id: string;
+    name: string;
+    llm_model_id: string | null;
+    system_prompt: string;
+  }
+
   interface AudioDevice {
     name: string;
     is_default: boolean;
@@ -44,7 +58,7 @@
   let language = $state("fr");
   let autoPaste = $state(true);
   let pushToTalk = $state(false);
-  let selectedModel = $state("ggml-small.bin");
+  let selectedModel = $state("ggml-small-q5_1.bin");
   let selectedDevice = $state<string | null>(null);
   let audioDevices = $state<AudioDevice[]>([]);
   let loading = $state(true);
@@ -61,6 +75,22 @@
   let availableModels = $state<ModelInfo[]>([]);
   let downloadingModel = $state<string | null>(null);
   let downloadProgress = $state<Record<string, number>>({});
+
+  // LLM management state
+  let llmModels = $state<LlmModel[]>([]);
+  let editingLlm = $state<LlmModel | null>(null);
+  let newLlmName = $state("");
+  let newLlmApiUrl = $state("");
+  let newLlmModelName = $state("");
+  let newLlmApiKey = $state("");
+
+  // Execution modes state
+  let executionModes = $state<ExecutionMode[]>([]);
+  let activeMode = $state("standard");
+  let editingMode = $state<ExecutionMode | null>(null);
+  let newModeName = $state("");
+  let newModeSystemPrompt = $state("");
+  let newModeLlmId = $state<string | null>(null);
 
   const languages = [
     { value: "fr", label: "Français" },
@@ -124,6 +154,33 @@
       } catch (error) {
         console.error("Failed to load available models:", error);
       }
+
+      // Load LLM models
+      try {
+        const models = await invoke<LlmModel[]>("get_llm_models");
+        llmModels = models;
+        console.log("LLM models loaded:", llmModels);
+      } catch (error) {
+        console.error("Failed to load LLM models:", error);
+      }
+
+      // Load execution modes
+      try {
+        const modes = await invoke<ExecutionMode[]>("get_execution_modes");
+        executionModes = modes;
+        console.log("Execution modes loaded:", executionModes);
+      } catch (error) {
+        console.error("Failed to load execution modes:", error);
+      }
+
+      // Load active mode
+      try {
+        const mode = await invoke<string>("get_active_mode");
+        activeMode = mode;
+        console.log("Active mode loaded:", activeMode);
+      } catch (error) {
+        console.error("Failed to load active mode:", error);
+      }
       } catch (error) {
         console.error("Failed to load settings:", error);
       } finally {
@@ -159,7 +216,10 @@
             model_name: selectedModel,
             push_to_talk: pushToTalk,
             device_name: selectedDevice,
-            custom_words: customWords
+            custom_words: customWords,
+            llm_models: llmModels,
+            execution_modes: executionModes,
+            active_mode: activeMode
           }
         });
         console.log("Settings auto-saved");
@@ -217,7 +277,10 @@
           model_name: selectedModel,
           push_to_talk: pushToTalk,
           device_name: selectedDevice,
-          custom_words: customWords
+          custom_words: customWords,
+          llm_models: llmModels,
+          execution_modes: executionModes,
+          active_mode: activeMode
         }
       });
 
@@ -522,6 +585,200 @@
     }
     return `${Math.round(sizeMb)} MB`;
   }
+
+  // LLM Management functions
+  async function addLlmModel() {
+    if (!newLlmName.trim() || !newLlmApiUrl.trim() || !newLlmModelName.trim() || !newLlmApiKey.trim()) {
+      saveStatus = "Tous les champs sont requis";
+      setTimeout(() => saveStatus = "", 2000);
+      return;
+    }
+
+    try {
+      const id = await invoke<string>("add_llm_model", {
+        name: newLlmName.trim(),
+        apiUrl: newLlmApiUrl.trim(),
+        modelName: newLlmModelName.trim(),
+        apiKey: newLlmApiKey.trim()
+      });
+
+      llmModels = [...llmModels, {
+        id,
+        name: newLlmName.trim(),
+        api_url: newLlmApiUrl.trim(),
+        model_name: newLlmModelName.trim()
+      }];
+
+      newLlmName = "";
+      newLlmApiUrl = "";
+      newLlmModelName = "";
+      newLlmApiKey = "";
+
+      saveStatus = "Modèle LLM ajouté avec succès!";
+      setTimeout(() => saveStatus = "", 3000);
+    } catch (error) {
+      console.error("Failed to add LLM model:", error);
+      saveStatus = "Erreur: " + error;
+      setTimeout(() => saveStatus = "", 3000);
+    }
+  }
+
+  async function updateLlmModel() {
+    if (!editingLlm) return;
+
+    try {
+      const updatedModel = { ...editingLlm };
+
+      await invoke("update_llm_model", {
+        id: updatedModel.id,
+        name: updatedModel.name,
+        apiUrl: updatedModel.api_url,
+        modelName: updatedModel.model_name,
+        apiKey: newLlmApiKey.trim() || null
+      });
+
+      llmModels = llmModels.map(m => m.id === updatedModel.id ? updatedModel : m);
+      editingLlm = null;
+      newLlmApiKey = "";
+
+      saveStatus = "Modèle LLM mis à jour!";
+      setTimeout(() => saveStatus = "", 3000);
+    } catch (error) {
+      console.error("Failed to update LLM model:", error);
+      saveStatus = "Erreur: " + error;
+      setTimeout(() => saveStatus = "", 3000);
+    }
+  }
+
+  async function deleteLlmModel(id: string) {
+    if (!confirm("Êtes-vous sûr de vouloir supprimer ce modèle LLM ?")) return;
+
+    try {
+      await invoke("delete_llm_model", { id });
+      llmModels = llmModels.filter(m => m.id !== id);
+
+      saveStatus = "Modèle LLM supprimé!";
+      setTimeout(() => saveStatus = "", 3000);
+    } catch (error) {
+      console.error("Failed to delete LLM model:", error);
+      saveStatus = "Erreur: " + error;
+      setTimeout(() => saveStatus = "", 3000);
+    }
+  }
+
+  function startEditingLlm(model: LlmModel) {
+    editingLlm = { ...model };
+    newLlmApiKey = "";
+  }
+
+  function cancelEditingLlm() {
+    editingLlm = null;
+    newLlmApiKey = "";
+  }
+
+  // Execution Mode Management functions
+  async function addExecutionMode() {
+    if (!newModeName.trim()) {
+      saveStatus = "Le nom du mode est requis";
+      setTimeout(() => saveStatus = "", 2000);
+      return;
+    }
+
+    try {
+      const id = await invoke<string>("add_execution_mode", {
+        name: newModeName.trim(),
+        llmModelId: newModeLlmId,
+        systemPrompt: newModeSystemPrompt.trim()
+      });
+
+      executionModes = [...executionModes, {
+        id,
+        name: newModeName.trim(),
+        llm_model_id: newModeLlmId,
+        system_prompt: newModeSystemPrompt.trim()
+      }];
+
+      newModeName = "";
+      newModeSystemPrompt = "";
+      newModeLlmId = null;
+
+      saveStatus = "Mode d'exécution ajouté!";
+      setTimeout(() => saveStatus = "", 3000);
+    } catch (error) {
+      console.error("Failed to add execution mode:", error);
+      saveStatus = "Erreur: " + error;
+      setTimeout(() => saveStatus = "", 3000);
+    }
+  }
+
+  async function updateExecutionMode() {
+    if (!editingMode) return;
+
+    try {
+      const updatedMode = { ...editingMode };
+
+      await invoke("update_execution_mode", {
+        id: updatedMode.id,
+        name: updatedMode.name,
+        llmModelId: updatedMode.llm_model_id,
+        systemPrompt: updatedMode.system_prompt
+      });
+
+      executionModes = executionModes.map(m => m.id === updatedMode.id ? updatedMode : m);
+      editingMode = null;
+
+      saveStatus = "Mode d'exécution mis à jour!";
+      setTimeout(() => saveStatus = "", 3000);
+    } catch (error) {
+      console.error("Failed to update execution mode:", error);
+      saveStatus = "Erreur: " + error;
+      setTimeout(() => saveStatus = "", 3000);
+    }
+  }
+
+  async function deleteExecutionMode(id: string) {
+    if (!confirm("Êtes-vous sûr de vouloir supprimer ce mode ?")) return;
+
+    try {
+      await invoke("delete_execution_mode", { id });
+      executionModes = executionModes.filter(m => m.id !== id);
+
+      saveStatus = "Mode d'exécution supprimé!";
+      setTimeout(() => saveStatus = "", 3000);
+    } catch (error) {
+      console.error("Failed to delete execution mode:", error);
+      saveStatus = "Erreur: " + error;
+      setTimeout(() => saveStatus = "", 3000);
+    }
+  }
+
+  async function setActiveModeHandler(modeId: string) {
+    try {
+      await invoke("set_active_mode", { modeId });
+      activeMode = modeId;
+
+      saveStatus = "Mode actif changé!";
+      setTimeout(() => saveStatus = "", 3000);
+    } catch (error) {
+      console.error("Failed to set active mode:", error);
+      saveStatus = "Erreur: " + error;
+      setTimeout(() => saveStatus = "", 3000);
+    }
+  }
+
+  function startEditingMode(mode: ExecutionMode) {
+    editingMode = { ...mode };
+  }
+
+  function cancelEditingMode() {
+    editingMode = null;
+  }
+
+  function getLlmModelName(llmId: string | null): string {
+    if (!llmId) return "Aucun";
+    const model = llmModels.find(m => m.id === llmId);
+    return model ? model.name : "Inconnu";
+  }
 </script>
 
 <div class="app-container">
@@ -555,7 +812,39 @@
         <img src="/icons/Vocabulaire.svg" alt="" class="nav-icon" />
         <span>Vocabulaire</span>
       </button>
+
+      <button
+        class="nav-item {activeTab === 'llm' ? 'active' : ''}"
+        onclick={() => activeTab = 'llm'}
+      >
+        <svg class="nav-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/>
+          <path d="M12 8v4m0 4h.01"/>
+        </svg>
+        <span>Modèles LLM</span>
+      </button>
+
+      <button
+        class="nav-item {activeTab === 'modes' ? 'active' : ''}"
+        onclick={() => activeTab = 'modes'}
+      >
+        <svg class="nav-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="3" width="7" height="7"/>
+          <rect x="14" y="3" width="7" height="7"/>
+          <rect x="14" y="14" width="7" height="7"/>
+          <rect x="3" y="14" width="7" height="7"/>
+        </svg>
+        <span>Modes</span>
+      </button>
     </nav>
+
+    <!-- Active Mode Indicator -->
+    <div class="active-mode-indicator">
+      <div class="mode-label">Mode actif</div>
+      <Badge variant="default" class="mode-badge">
+        {executionModes.find(m => m.id === activeMode)?.name || "Standard"}
+      </Badge>
+    </div>
   </aside>
 
   <!-- Main Content -->
@@ -816,6 +1105,242 @@
             </div>
           {/each}
         </div>
+      </div>
+    {:else if activeTab === 'llm'}
+      <div class="content-section">
+        <h2 class="section-title">Modèles LLM</h2>
+
+        <!-- Add LLM Form -->
+        <div class="llm-form">
+          <h3 class="form-subtitle">Ajouter un modèle LLM</h3>
+          <div class="form-grid">
+            <div class="form-field">
+              <label for="llm-name">Nom</label>
+              <input
+                id="llm-name"
+                type="text"
+                bind:value={newLlmName}
+                placeholder="Ex: Gemini Flash"
+                class="text-input"
+              />
+            </div>
+            <div class="form-field">
+              <label for="llm-model-name">Nom du modèle</label>
+              <input
+                id="llm-model-name"
+                type="text"
+                bind:value={newLlmModelName}
+                placeholder="Ex: gemini-2.0-flash-exp"
+                class="text-input"
+              />
+            </div>
+            <div class="form-field full-width">
+              <label for="llm-api-url">URL de l'API</label>
+              <input
+                id="llm-api-url"
+                type="url"
+                bind:value={newLlmApiUrl}
+                placeholder="Ex: https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent"
+                class="text-input"
+              />
+            </div>
+            <div class="form-field full-width">
+              <label for="llm-api-key">Clé API</label>
+              <input
+                id="llm-api-key"
+                type="password"
+                bind:value={newLlmApiKey}
+                placeholder="Votre clé API"
+                class="text-input"
+              />
+            </div>
+          </div>
+          <Button onclick={addLlmModel} class="add-button">Ajouter le modèle</Button>
+        </div>
+
+        <!-- LLM Models List -->
+        <div class="llm-list">
+          <h3 class="form-subtitle">Modèles configurés</h3>
+          {#if llmModels.length === 0}
+            <p class="empty-state">Aucun modèle LLM configuré</p>
+          {:else}
+            {#each llmModels as model}
+              {#if editingLlm && editingLlm.id === model.id}
+                <div class="llm-item editing">
+                  <div class="form-grid">
+                    <div class="form-field">
+                      <label>Nom</label>
+                      <input type="text" bind:value={editingLlm.name} class="text-input" />
+                    </div>
+                    <div class="form-field">
+                      <label>Nom du modèle</label>
+                      <input type="text" bind:value={editingLlm.model_name} class="text-input" />
+                    </div>
+                    <div class="form-field full-width">
+                      <label>URL de l'API</label>
+                      <input type="url" bind:value={editingLlm.api_url} class="text-input" />
+                    </div>
+                    <div class="form-field full-width">
+                      <label>Nouvelle clé API (laisser vide pour conserver)</label>
+                      <input type="password" bind:value={newLlmApiKey} class="text-input" placeholder="Nouvelle clé API (optionnel)" />
+                    </div>
+                  </div>
+                  <div class="button-row">
+                    <Button onclick={updateLlmModel} size="sm">Enregistrer</Button>
+                    <Button onclick={cancelEditingLlm} variant="outline" size="sm">Annuler</Button>
+                  </div>
+                </div>
+              {:else}
+                <div class="llm-item">
+                  <div class="llm-info">
+                    <div class="llm-name">{model.name}</div>
+                    <div class="llm-details">
+                      <span class="detail-label">Modèle:</span> {model.model_name}
+                    </div>
+                    <div class="llm-details">
+                      <span class="detail-label">URL:</span> {model.api_url}
+                    </div>
+                  </div>
+                  <div class="llm-actions">
+                    <button class="icon-button" onclick={() => startEditingLlm(model)} aria-label="Modifier">
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 2L14 4L6 12H4V10L12 2Z"/>
+                      </svg>
+                    </button>
+                    <button class="icon-button delete" onclick={() => deleteLlmModel(model.id)} aria-label="Supprimer">
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                        <path d="M2 4H14M6 4V2H10V4M3 4V14H13V4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              {/if}
+            {/each}
+          {/if}
+        </div>
+
+        {#if saveStatus}
+          <p class="save-status {saveStatus.includes('succès') ? 'success' : 'error'}">
+            {saveStatus}
+          </p>
+        {/if}
+      </div>
+    {:else if activeTab === 'modes'}
+      <div class="content-section">
+        <h2 class="section-title">Modes d'exécution</h2>
+
+        <!-- Add Mode Form -->
+        <div class="mode-form">
+          <h3 class="form-subtitle">Ajouter un mode</h3>
+          <div class="form-grid">
+            <div class="form-field">
+              <label for="mode-name">Nom du mode</label>
+              <input
+                id="mode-name"
+                type="text"
+                bind:value={newModeName}
+                placeholder="Ex: Correction orthographique"
+                class="text-input"
+              />
+            </div>
+            <div class="form-field">
+              <label for="mode-llm">Modèle LLM</label>
+              <select id="mode-llm" bind:value={newModeLlmId} class="select-input">
+                <option value={null}>Aucun (mode standard)</option>
+                {#each llmModels as model}
+                  <option value={model.id}>{model.name}</option>
+                {/each}
+              </select>
+            </div>
+            <div class="form-field full-width">
+              <label for="mode-prompt">Prompt système</label>
+              <textarea
+                id="mode-prompt"
+                bind:value={newModeSystemPrompt}
+                placeholder="Ex: Corrige l'orthographe et la grammaire du texte suivant."
+                class="textarea-input"
+                rows="4"
+              ></textarea>
+            </div>
+          </div>
+          <Button onclick={addExecutionMode} class="add-button">Ajouter le mode</Button>
+        </div>
+
+        <!-- Modes List -->
+        <div class="modes-list">
+          <h3 class="form-subtitle">Modes configurés</h3>
+          {#each executionModes as mode}
+            {#if editingMode && editingMode.id === mode.id}
+              <div class="mode-item editing">
+                <div class="form-grid">
+                  <div class="form-field">
+                    <label>Nom du mode</label>
+                    <input type="text" bind:value={editingMode.name} class="text-input" disabled={mode.id === 'standard'} />
+                  </div>
+                  <div class="form-field">
+                    <label>Modèle LLM</label>
+                    <select bind:value={editingMode.llm_model_id} class="select-input" disabled={mode.id === 'standard'}>
+                      <option value={null}>Aucun (mode standard)</option>
+                      {#each llmModels as llmModel}
+                        <option value={llmModel.id}>{llmModel.name}</option>
+                      {/each}
+                    </select>
+                  </div>
+                  <div class="form-field full-width">
+                    <label>Prompt système</label>
+                    <textarea bind:value={editingMode.system_prompt} class="textarea-input" rows="4" disabled={mode.id === 'standard'}></textarea>
+                  </div>
+                </div>
+                <div class="button-row">
+                  <Button onclick={updateExecutionMode} size="sm" disabled={mode.id === 'standard'}>Enregistrer</Button>
+                  <Button onclick={cancelEditingMode} variant="outline" size="sm">Annuler</Button>
+                </div>
+              </div>
+            {:else}
+              <div class="mode-item {mode.id === activeMode ? 'active' : ''}">
+                <div class="mode-info">
+                  <div class="mode-header">
+                    <div class="mode-name">{mode.name}</div>
+                    {#if mode.id === activeMode}
+                      <Badge variant="default">Actif</Badge>
+                    {/if}
+                  </div>
+                  <div class="mode-details">
+                    <span class="detail-label">Modèle LLM:</span> {getLlmModelName(mode.llm_model_id)}
+                  </div>
+                  {#if mode.system_prompt}
+                    <div class="mode-prompt">{mode.system_prompt}</div>
+                  {/if}
+                </div>
+                <div class="mode-actions">
+                  {#if mode.id !== activeMode}
+                    <Button onclick={() => setActiveModeHandler(mode.id)} size="sm" variant="outline">
+                      Activer
+                    </Button>
+                  {/if}
+                  {#if mode.id !== 'standard'}
+                    <button class="icon-button" onclick={() => startEditingMode(mode)} aria-label="Modifier">
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 2L14 4L6 12H4V10L12 2Z"/>
+                      </svg>
+                    </button>
+                    <button class="icon-button delete" onclick={() => deleteExecutionMode(mode.id)} aria-label="Supprimer">
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                        <path d="M2 4H14M6 4V2H10V4M3 4V14H13V4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                      </svg>
+                    </button>
+                  {/if}
+                </div>
+              </div>
+            {/if}
+          {/each}
+        </div>
+
+        {#if saveStatus}
+          <p class="save-status {saveStatus.includes('succès') ? 'success' : 'error'}">
+            {saveStatus}
+          </p>
+        {/if}
       </div>
     {/if}
   </main>
@@ -1216,5 +1741,188 @@
 
   .remove-word:hover {
     color: #EF4444;
+  }
+
+  /* Active Mode Indicator */
+  .active-mode-indicator {
+    margin-top: auto;
+    padding: 16px;
+    border-top: 1px solid #E0E0E0;
+  }
+
+  .mode-label {
+    font-size: 12px;
+    font-weight: 300;
+    color: #999;
+    margin-bottom: 8px;
+  }
+
+  .mode-badge {
+    display: inline-block;
+  }
+
+  /* LLM and Modes Tabs */
+  .form-subtitle {
+    font-size: 18px;
+    font-weight: 500;
+    color: #000;
+    margin: 32px 0 16px 0;
+  }
+
+  .form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+
+  .form-field {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .form-field.full-width {
+    grid-column: 1 / -1;
+  }
+
+  .form-field label {
+    font-size: 14px;
+    font-weight: 300;
+    color: #666;
+  }
+
+  .text-input {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid #E0E0E0;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 300;
+    background: white;
+  }
+
+  .text-input:focus {
+    outline: none;
+    border-color: #4FB094;
+  }
+
+  .textarea-input {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid #E0E0E0;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 300;
+    background: white;
+    font-family: inherit;
+    resize: vertical;
+  }
+
+  .textarea-input:focus {
+    outline: none;
+    border-color: #4FB094;
+  }
+
+  .button-row {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+  }
+
+  .empty-state {
+    padding: 32px;
+    text-align: center;
+    color: #999;
+    font-size: 14px;
+  }
+
+  /* LLM Items */
+  .llm-list,
+  .modes-list {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .llm-item,
+  .mode-item {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px;
+    border: 1px solid #E0E0E0;
+    border-radius: 8px;
+    background: white;
+  }
+
+  .llm-item.editing,
+  .mode-item.editing {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .mode-item.active {
+    border-color: #4FB094;
+    background: #F0FAF7;
+  }
+
+  .llm-info,
+  .mode-info {
+    flex: 1;
+  }
+
+  .llm-name,
+  .mode-name {
+    font-size: 16px;
+    font-weight: 500;
+    color: #000;
+    margin-bottom: 8px;
+  }
+
+  .mode-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+  }
+
+  .llm-details,
+  .mode-details {
+    font-size: 14px;
+    font-weight: 300;
+    color: #666;
+    margin-bottom: 4px;
+  }
+
+  .detail-label {
+    font-weight: 500;
+    color: #000;
+  }
+
+  .mode-prompt {
+    margin-top: 8px;
+    padding: 12px;
+    background: #F9F9F9;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 300;
+    color: #666;
+    line-height: 1.5;
+  }
+
+  .llm-actions,
+  .mode-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .llm-form,
+  .mode-form {
+    padding: 24px;
+    background: #F9F9F9;
+    border-radius: 8px;
+    margin-bottom: 32px;
   }
 </style>

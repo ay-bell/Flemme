@@ -4,11 +4,13 @@ pub mod transcription;
 pub mod hotkey;
 pub mod clipboard;
 pub mod config;
+pub mod llm;
 
 use audio::{AudioRecorder, VoiceActivityDetector};
-use transcription::TranscriptionEngine;
+use transcription::engine::TranscriptionEngine;
 use clipboard::ClipboardManager;
 use hotkey::HotkeyListener;
+use config::settings::{LlmModel, ExecutionMode};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 use tauri::{AppHandle, Emitter, State};
@@ -148,7 +150,11 @@ impl TranscriptionWorker {
                         None
                     };
 
-                    let result = if let Some(ref engine) = self.engine {
+                    if let Some(words) = custom_words {
+                        println!("Loaded {} custom words for contextual biasing", words.len());
+                    }
+
+                    let result = if let Some(ref mut engine) = self.engine {
                         engine.transcribe(&audio, language.as_deref(), custom_words)
                     } else {
                         Err("Transcription engine not initialized".to_string())
@@ -445,13 +451,13 @@ fn list_available_models() -> Result<Vec<ModelInfo>, String> {
             .map_err(|e| format!("Failed to create models directory: {}", e))?;
     }
 
-    // List of available Whisper models with download URLs
+    // List of available Whisper models with download URLs (Q5 quantized for better performance)
     let available_models = vec![
-        ("ggml-base.bin", 142.0, "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin"),
-        ("ggml-small.bin", 466.0, "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin"),
-        ("ggml-medium.bin", 1520.0, "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin"),
-        ("ggml-large-v2.bin", 2940.0, "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v2.bin"),
-        ("ggml-large-v3-turbo.bin", 1540.0, "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin"),
+        ("ggml-base-q5_1.bin", 59.7, "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin"),
+        ("ggml-small-q5_1.bin", 192.0, "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin"),
+        ("ggml-medium-q5_0.bin", 940.0, "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium-q5_0.bin"),
+        ("ggml-large-v2-q5_0.bin", 1820.0, "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v2-q5_0.bin"),
+        ("ggml-large-v3-turbo-q5_0.bin", 950.0, "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin"),
     ];
 
     let mut result = Vec::new();
@@ -579,7 +585,10 @@ fn handle_recording_complete(
     _app_handle: AppHandle
 ) {
     thread::spawn(move || {
+        let pipeline_start = std::time::Instant::now();
+
         // Stop recording and get audio data
+        let stop_start = std::time::Instant::now();
         let (reply_tx, reply_rx) = mpsc::channel();
         if let Err(e) = audio_tx.send(AudioCommand::StopRecording { reply: reply_tx }) {
             eprintln!("Failed to send stop recording command: {}", e);
@@ -598,6 +607,7 @@ fn handle_recording_complete(
             }
         };
 
+        println!("[TIMING] stop_recording (with resampling): {:.0}ms", stop_start.elapsed().as_millis());
         println!("Recording stopped, got {} samples", audio_data.len());
 
         // Check if we have audio data
@@ -609,8 +619,16 @@ fn handle_recording_complete(
         // Apply Voice Activity Detection to filter silence
         println!("Applying VAD to filter silence...");
 
+        // Add padding at the beginning to prevent VAD from cutting the start of speech
+        // 150ms of silence gives VAD time to "warm up" and detect speech properly
+        let padding_samples = (16000.0 * 0.15) as usize; // 150ms at 16kHz
+        let mut padded_audio = vec![0.0; padding_samples];
+        padded_audio.extend_from_slice(&audio_data);
+        println!("Added {}ms padding before VAD (from {} to {} samples)",
+                 padding_samples as f32 / 16.0, audio_data.len(), padded_audio.len());
+
         // Store original audio length before moving audio_data
-        let original_audio_len = audio_data.len();
+        let original_audio_len = padded_audio.len();
 
         // Get VAD model path
         let vad_model_path = dirs::data_dir()
@@ -623,9 +641,9 @@ fn handle_recording_complete(
             Ok(mut vad) => {
                 // Use 512 samples per chunk (32ms at 16kHz) for VAD analysis
                 let chunk_size = 512;
-                let filtered = vad.filter_silence(&audio_data, chunk_size);
+                let filtered = vad.filter_silence(&padded_audio, chunk_size);
 
-                let original_duration = audio_data.len() as f32 / 16000.0;
+                let original_duration = padded_audio.len() as f32 / 16000.0;
                 let filtered_duration = filtered.len() as f32 / 16000.0;
                 let silence_removed = original_duration - filtered_duration;
 
@@ -637,18 +655,18 @@ fn handle_recording_complete(
                 filtered
             }
                     Err(e) => {
-                        eprintln!("Failed to initialize VAD: {}. Using original audio.", e);
-                        audio_data
+                        eprintln!("Failed to initialize VAD: {}. Using padded audio.", e);
+                        padded_audio
                     }
                 }
             }
             Ok(model_path) => {
-                eprintln!("VAD model not found at {:?}. Using original audio. Please download the model first.", model_path);
-                audio_data
+                eprintln!("VAD model not found at {:?}. Using padded audio. Please download the model first.", model_path);
+                padded_audio
             }
             Err(e) => {
-                eprintln!("Failed to get VAD model path: {}. Using original audio.", e);
-                audio_data
+                eprintln!("Failed to get VAD model path: {}. Using padded audio.", e);
+                padded_audio
             }
         };
 
@@ -674,6 +692,7 @@ fn handle_recording_complete(
         let language = Some(settings.language);
 
         // Transcribe the audio
+        let transcribe_start = std::time::Instant::now();
         let (reply_tx, reply_rx) = mpsc::channel();
         if let Err(e) = transcription_tx.send(TranscriptionCommand::Transcribe {
             audio: audio_to_transcribe,
@@ -696,16 +715,94 @@ fn handle_recording_complete(
             }
         };
 
+        println!("[TIMING] Transcription worker (includes queue wait): {:.0}ms", transcribe_start.elapsed().as_millis());
         println!("Transcription completed: {}", transcription);
 
-        // Auto-paste the transcribed text if enabled in settings
-        if !transcription.is_empty() {
-            let settings = config::AppSettings::load().unwrap_or_default();
+        // Process through LLM if using a custom execution mode
+        let settings = config::AppSettings::load().unwrap_or_default();
+        let final_text = if !transcription.is_empty() && settings.active_mode != "standard" {
+            // Find the active execution mode
+            let mode = settings.execution_modes.iter()
+                .find(|m| m.id == settings.active_mode);
+
+            if let Some(mode) = mode {
+                if let Some(ref llm_model_id) = mode.llm_model_id {
+                    // Find the LLM model
+                    let llm_model = settings.llm_models.iter()
+                        .find(|m| m.id == *llm_model_id);
+
+                    if let Some(llm_model) = llm_model {
+                        println!("=== EXECUTING MODE: {} ===", mode.name);
+                        println!("Using LLM: {}", llm_model.name);
+
+                        // Get API key from keyring
+                        match llm::keyring_manager::get_api_key(llm_model_id) {
+                            Ok(Some(api_key)) => {
+                                // Call the LLM asynchronously
+                                let llm_model_clone = llm_model.clone();
+                                let system_prompt = mode.system_prompt.clone();
+                                let transcription_clone = transcription.clone();
+
+                                println!("Calling LLM API...");
+                                let runtime = tokio::runtime::Runtime::new().unwrap();
+                                match runtime.block_on(llm::call_llm(
+                                    &llm_model_clone,
+                                    &api_key,
+                                    &system_prompt,
+                                    &transcription_clone
+                                )) {
+                                    Ok(llm_response) => {
+                                        println!("LLM processing successful");
+                                        llm_response
+                                    }
+                                    Err(e) => {
+                                        eprintln!("LLM call failed: {}", e);
+                                        eprintln!("Falling back to raw transcription");
+                                        transcription
+                                    }
+                                }
+                            }
+                            Ok(None) => {
+                                eprintln!("No API key found for LLM: {}", llm_model_id);
+                                eprintln!("Falling back to raw transcription");
+                                transcription
+                            }
+                            Err(e) => {
+                                eprintln!("Failed to retrieve API key: {}", e);
+                                eprintln!("Falling back to raw transcription");
+                                transcription
+                            }
+                        }
+                    } else {
+                        eprintln!("LLM model not found: {}", llm_model_id);
+                        eprintln!("Falling back to raw transcription");
+                        transcription
+                    }
+                } else {
+                    // Mode has no LLM configured, use raw transcription
+                    transcription
+                }
+            } else {
+                eprintln!("Active mode not found: {}", settings.active_mode);
+                eprintln!("Falling back to raw transcription");
+                transcription
+            }
+        } else {
+            // Standard mode or empty transcription
+            transcription
+        };
+
+        println!("[TIMING] ==========================================");
+        println!("[TIMING] TOTAL PIPELINE: {:.0}ms", pipeline_start.elapsed().as_millis());
+        println!("[TIMING] ==========================================");
+
+        // Auto-paste the final text if enabled in settings
+        if !final_text.is_empty() {
 
             if settings.auto_paste {
                 match ClipboardManager::new() {
                     Ok(clipboard) => {
-                        if let Err(e) = clipboard.auto_paste(&transcription) {
+                        if let Err(e) = clipboard.auto_paste(&final_text) {
                             eprintln!("Failed to auto-paste: {}", e);
                         } else {
                             println!("Text auto-pasted successfully");
@@ -719,7 +816,7 @@ fn handle_recording_complete(
                 println!("Auto-paste disabled, copying to clipboard only");
                 match ClipboardManager::new() {
                     Ok(clipboard) => {
-                        if let Err(e) = clipboard.copy_text(&transcription) {
+                        if let Err(e) = clipboard.copy_text(&final_text) {
                             eprintln!("Failed to copy to clipboard: {}", e);
                         } else {
                             println!("Text copied to clipboard");
@@ -731,9 +828,265 @@ fn handle_recording_complete(
                 }
             }
         } else {
-            println!("No transcription to paste (empty result)");
+            println!("No text to paste (empty result)");
         }
     });
+}
+
+// ============================================================================
+// LLM Model Management Commands
+// ============================================================================
+
+/// Get all configured LLM models
+#[tauri::command]
+fn get_llm_models() -> Result<Vec<LlmModel>, String> {
+    let settings = config::AppSettings::load()
+        .map_err(|e| format!("Failed to load settings: {}", e))?;
+    Ok(settings.llm_models)
+}
+
+/// Add a new LLM model
+#[tauri::command]
+fn add_llm_model(
+    name: String,
+    api_url: String,
+    model_name: String,
+    api_key: String,
+) -> Result<String, String> {
+    let mut settings = config::AppSettings::load()
+        .map_err(|e| format!("Failed to load settings: {}", e))?;
+
+    // Generate a unique ID
+    let id = format!("llm_{}", uuid::Uuid::new_v4().to_string());
+
+    // Store API key in keyring
+    llm::keyring_manager::store_api_key(&id, &api_key)?;
+
+    // Add model to settings
+    settings.llm_models.push(LlmModel {
+        id: id.clone(),
+        name,
+        api_url,
+        model_name,
+    });
+
+    settings.save()
+        .map_err(|e| format!("Failed to save settings: {}", e))?;
+
+    println!("LLM model added with ID: {}", id);
+    Ok(id)
+}
+
+/// Update an existing LLM model
+#[tauri::command]
+fn update_llm_model(
+    id: String,
+    name: String,
+    api_url: String,
+    model_name: String,
+    api_key: Option<String>,
+) -> Result<(), String> {
+    let mut settings = config::AppSettings::load()
+        .map_err(|e| format!("Failed to load settings: {}", e))?;
+
+    // Find the model
+    let model = settings.llm_models.iter_mut()
+        .find(|m| m.id == id)
+        .ok_or_else(|| format!("LLM model not found: {}", id))?;
+
+    // Update model fields
+    model.name = name;
+    model.api_url = api_url;
+    model.model_name = model_name;
+
+    // Update API key if provided
+    if let Some(key) = api_key {
+        llm::keyring_manager::store_api_key(&id, &key)?;
+    }
+
+    settings.save()
+        .map_err(|e| format!("Failed to save settings: {}", e))?;
+
+    println!("LLM model updated: {}", id);
+    Ok(())
+}
+
+/// Delete an LLM model
+#[tauri::command]
+fn delete_llm_model(id: String) -> Result<(), String> {
+    let mut settings = config::AppSettings::load()
+        .map_err(|e| format!("Failed to load settings: {}", e))?;
+
+    // Check if any execution mode uses this model
+    let in_use = settings.execution_modes.iter()
+        .any(|mode| mode.llm_model_id.as_ref() == Some(&id));
+
+    if in_use {
+        return Err(format!("Cannot delete LLM model '{}': it is used by one or more execution modes", id));
+    }
+
+    // Remove from settings
+    let initial_len = settings.llm_models.len();
+    settings.llm_models.retain(|m| m.id != id);
+
+    if settings.llm_models.len() == initial_len {
+        return Err(format!("LLM model not found: {}", id));
+    }
+
+    // Delete API key from keyring
+    llm::keyring_manager::delete_api_key(&id)?;
+
+    settings.save()
+        .map_err(|e| format!("Failed to save settings: {}", e))?;
+
+    println!("LLM model deleted: {}", id);
+    Ok(())
+}
+
+// ============================================================================
+// Execution Mode Management Commands
+// ============================================================================
+
+/// Get all execution modes
+#[tauri::command]
+fn get_execution_modes() -> Result<Vec<ExecutionMode>, String> {
+    let settings = config::AppSettings::load()
+        .map_err(|e| format!("Failed to load settings: {}", e))?;
+    Ok(settings.execution_modes)
+}
+
+/// Get the currently active execution mode ID
+#[tauri::command]
+fn get_active_mode() -> Result<String, String> {
+    let settings = config::AppSettings::load()
+        .map_err(|e| format!("Failed to load settings: {}", e))?;
+    Ok(settings.active_mode)
+}
+
+/// Set the active execution mode
+#[tauri::command]
+fn set_active_mode(mode_id: String) -> Result<(), String> {
+    let mut settings = config::AppSettings::load()
+        .map_err(|e| format!("Failed to load settings: {}", e))?;
+
+    // Verify the mode exists
+    if !settings.execution_modes.iter().any(|m| m.id == mode_id) {
+        return Err(format!("Execution mode not found: {}", mode_id));
+    }
+
+    settings.active_mode = mode_id.clone();
+    settings.save()
+        .map_err(|e| format!("Failed to save settings: {}", e))?;
+
+    println!("Active execution mode set to: {}", mode_id);
+    Ok(())
+}
+
+/// Add a new execution mode
+#[tauri::command]
+fn add_execution_mode(
+    name: String,
+    llm_model_id: Option<String>,
+    system_prompt: String,
+) -> Result<String, String> {
+    let mut settings = config::AppSettings::load()
+        .map_err(|e| format!("Failed to load settings: {}", e))?;
+
+    // If an LLM model is specified, verify it exists
+    if let Some(ref model_id) = llm_model_id {
+        if !settings.llm_models.iter().any(|m| m.id == *model_id) {
+            return Err(format!("LLM model not found: {}", model_id));
+        }
+    }
+
+    // Generate a unique ID
+    let id = format!("mode_{}", uuid::Uuid::new_v4().to_string());
+
+    // Add mode to settings
+    settings.execution_modes.push(ExecutionMode {
+        id: id.clone(),
+        name,
+        llm_model_id,
+        system_prompt,
+    });
+
+    settings.save()
+        .map_err(|e| format!("Failed to save settings: {}", e))?;
+
+    println!("Execution mode added with ID: {}", id);
+    Ok(id)
+}
+
+/// Update an existing execution mode
+#[tauri::command]
+fn update_execution_mode(
+    id: String,
+    name: String,
+    llm_model_id: Option<String>,
+    system_prompt: String,
+) -> Result<(), String> {
+    // Prevent modifying the standard mode
+    if id == "standard" {
+        return Err("Cannot modify the built-in 'standard' mode".to_string());
+    }
+
+    let mut settings = config::AppSettings::load()
+        .map_err(|e| format!("Failed to load settings: {}", e))?;
+
+    // If an LLM model is specified, verify it exists
+    if let Some(ref model_id) = llm_model_id {
+        if !settings.llm_models.iter().any(|m| m.id == *model_id) {
+            return Err(format!("LLM model not found: {}", model_id));
+        }
+    }
+
+    // Find the mode
+    let mode = settings.execution_modes.iter_mut()
+        .find(|m| m.id == id)
+        .ok_or_else(|| format!("Execution mode not found: {}", id))?;
+
+    // Update mode fields
+    mode.name = name;
+    mode.llm_model_id = llm_model_id;
+    mode.system_prompt = system_prompt;
+
+    settings.save()
+        .map_err(|e| format!("Failed to save settings: {}", e))?;
+
+    println!("Execution mode updated: {}", id);
+    Ok(())
+}
+
+/// Delete an execution mode
+#[tauri::command]
+fn delete_execution_mode(id: String) -> Result<(), String> {
+    // Prevent deleting the standard mode
+    if id == "standard" {
+        return Err("Cannot delete the built-in 'standard' mode".to_string());
+    }
+
+    let mut settings = config::AppSettings::load()
+        .map_err(|e| format!("Failed to load settings: {}", e))?;
+
+    // If this is the active mode, switch to standard
+    if settings.active_mode == id {
+        settings.active_mode = String::from("standard");
+        println!("Switched active mode to 'standard' because deleted mode was active");
+    }
+
+    // Remove from settings
+    let initial_len = settings.execution_modes.len();
+    settings.execution_modes.retain(|m| m.id != id);
+
+    if settings.execution_modes.len() == initial_len {
+        return Err(format!("Execution mode not found: {}", id));
+    }
+
+    settings.save()
+        .map_err(|e| format!("Failed to save settings: {}", e))?;
+
+    println!("Execution mode deleted: {}", id);
+    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -959,10 +1312,29 @@ pub fn run() {
                 let transcription_tx_for_quit = transcription_tx.clone();
 
                 // Create system tray menu
-                let settings = MenuItemBuilder::with_id("settings", "Paramètres").build(app)?;
+                let settings_item = MenuItemBuilder::with_id("settings", "Paramètres").build(app)?;
+
+                // Load execution modes and create Modes submenu
+                use tauri::menu::SubmenuBuilder;
+                let app_settings = config::AppSettings::load().unwrap_or_default();
+                let mut modes_submenu = SubmenuBuilder::new(app, "Modes");
+
+                for mode in &app_settings.execution_modes {
+                    let mode_id = format!("mode_{}", mode.id);
+                    let mode_label = if mode.id == app_settings.active_mode {
+                        format!("✓ {}", mode.name)
+                    } else {
+                        mode.name.clone()
+                    };
+                    let mode_item = MenuItemBuilder::with_id(&mode_id, mode_label).build(app)?;
+                    modes_submenu = modes_submenu.item(&mode_item);
+                }
+
+                let modes_menu = modes_submenu.build()?;
                 let quit = MenuItemBuilder::with_id("quit", "Quitter").build(app)?;
+
                 let menu = MenuBuilder::new(app)
-                    .items(&[&settings, &quit])
+                    .items(&[&settings_item, &modes_menu, &quit])
                     .build()?;
 
                 // Build the tray icon
@@ -970,7 +1342,9 @@ pub fn run() {
                     .icon(app.default_window_icon().unwrap().clone())
                     .menu(&menu)
                     .on_menu_event(move |app, event| {
-                        match event.id().as_ref() {
+                        let event_id = event.id().as_ref();
+
+                        match event_id {
                             "settings" => {
                                 // Show main window when settings is clicked
                                 if let Some(window) = app.get_webview_window("main") {
@@ -994,6 +1368,23 @@ pub fn run() {
                                 std::thread::sleep(std::time::Duration::from_millis(200));
                                 println!("Worker threads shutdown complete");
                                 app.exit(0);
+                            }
+                            id if id.starts_with("mode_") => {
+                                // Extract the mode ID by removing "mode_" prefix
+                                let mode_id = id.strip_prefix("mode_").unwrap();
+
+                                // Set the active mode
+                                if let Ok(mut settings) = config::AppSettings::load() {
+                                    if settings.execution_modes.iter().any(|m| m.id == mode_id) {
+                                        settings.active_mode = mode_id.to_string();
+                                        if let Err(e) = settings.save() {
+                                            eprintln!("Failed to save active mode: {}", e);
+                                        } else {
+                                            println!("Active mode changed to: {}", mode_id);
+                                            // TODO: Rebuild tray menu to update checkmarks
+                                        }
+                                    }
+                                }
                             }
                             _ => {}
                         }
@@ -1032,7 +1423,17 @@ pub fn run() {
             get_custom_words,
             list_available_models,
             download_model,
-            delete_model
+            delete_model,
+            get_llm_models,
+            add_llm_model,
+            update_llm_model,
+            delete_llm_model,
+            get_execution_modes,
+            get_active_mode,
+            set_active_mode,
+            add_execution_mode,
+            update_execution_mode,
+            delete_execution_mode
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

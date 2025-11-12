@@ -4,6 +4,24 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
+/// Configuration for an LLM model
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LlmModel {
+    pub id: String,
+    pub name: String,
+    pub api_url: String,
+    pub model_name: String,
+}
+
+/// Configuration for an execution mode
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecutionMode {
+    pub id: String,
+    pub name: String,
+    pub llm_model_id: Option<String>, // None for "Standard" mode
+    pub system_prompt: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSettings {
     pub hotkey: String,
@@ -15,6 +33,16 @@ pub struct AppSettings {
     pub device_name: Option<String>,
     #[serde(default)]
     pub custom_words: Vec<String>,
+    #[serde(default)]
+    pub llm_models: Vec<LlmModel>,
+    #[serde(default)]
+    pub execution_modes: Vec<ExecutionMode>,
+    #[serde(default = "default_active_mode")]
+    pub active_mode: String,
+}
+
+fn default_active_mode() -> String {
+    String::from("standard")
 }
 
 impl Default for AppSettings {
@@ -23,7 +51,7 @@ impl Default for AppSettings {
             hotkey: String::from("Ctrl+Alt+R"),
             language: String::from("fr"),
             auto_paste: true,
-            model_name: String::from("ggml-small.bin"),
+            model_name: String::from("ggml-small-q5_1.bin"),
             push_to_talk: false, // Default to toggle mode
             cancel_key: String::from("Escape"),
             device_name: None, // None means use default device
@@ -32,6 +60,14 @@ impl Default for AppSettings {
                 String::from("PPAT"),
                 String::from("Harmonie Mutuelle"),
             ],
+            llm_models: vec![],
+            execution_modes: vec![ExecutionMode {
+                id: String::from("standard"),
+                name: String::from("Standard"),
+                llm_model_id: None,
+                system_prompt: String::new(),
+            }],
+            active_mode: String::from("standard"),
         }
     }
 }
@@ -74,6 +110,18 @@ impl AppSettings {
             settings.custom_words = defaults.custom_words;
             println!("Initialized custom_words with defaults");
             // Save the updated settings
+            let _ = settings.save();
+        }
+
+        // Ensure "standard" mode exists
+        if !settings.execution_modes.iter().any(|m| m.id == "standard") {
+            settings.execution_modes.insert(0, ExecutionMode {
+                id: String::from("standard"),
+                name: String::from("Standard"),
+                llm_model_id: None,
+                system_prompt: String::new(),
+            });
+            println!("Initialized standard execution mode");
             let _ = settings.save();
         }
 

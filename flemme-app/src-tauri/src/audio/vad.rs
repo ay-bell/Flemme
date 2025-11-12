@@ -127,6 +127,11 @@ impl VoiceActivityDetector {
 
     /// Process audio and return only segments with speech
     ///
+    /// Uses a smart detection strategy:
+    /// - First, analyze all chunks to detect speech ratio
+    /// - If speech ratio > 30%, keep entire audio (short utterances/phrases)
+    /// - Otherwise, extract segments with duration constraints
+    ///
     /// # Arguments
     /// * `audio_data` - Full audio buffer
     /// * `chunk_size` - Size of chunks to analyze (512, 1024, or 1536 samples)
@@ -134,14 +139,16 @@ impl VoiceActivityDetector {
     /// # Returns
     /// * `Vec<f32>` - Audio with silence removed
     pub fn filter_silence(&mut self, audio_data: &[f32], chunk_size: usize) -> Vec<f32> {
-        let mut filtered = Vec::new();
+        let start_time = std::time::Instant::now();
 
-        // Reset state before processing new audio
+        // Reset state before processing
         self.reset();
 
-        // Process audio in chunks
+        // First pass: detect speech ratio
+        let num_chunks = (audio_data.len() + chunk_size - 1) / chunk_size;
+        let mut speech_chunks = 0;
+
         for chunk in audio_data.chunks(chunk_size) {
-            // Handle incomplete chunks at the end by padding with zeros
             let chunk_to_process = if chunk.len() != chunk_size {
                 let mut padded = vec![0.0f32; chunk_size];
                 padded[..chunk.len()].copy_from_slice(chunk);
@@ -151,12 +158,150 @@ impl VoiceActivityDetector {
             };
 
             if self.is_speech(&chunk_to_process) {
-                // Only add the original chunk length (without padding)
-                filtered.extend_from_slice(chunk);
+                speech_chunks += 1;
             }
         }
 
+        let speech_ratio = speech_chunks as f32 / num_chunks as f32;
+        let elapsed = start_time.elapsed().as_millis();
+
+        // If significant speech detected (>30%), keep entire audio
+        // This handles short phrases/utterances better than aggressive filtering
+        if speech_ratio > 0.3 {
+            println!(
+                "[TIMING] VAD filter_silence: {:.0}ms (processed {} chunks, {} speech chunks, {:.1}% speech)",
+                elapsed, num_chunks, speech_chunks, speech_ratio * 100.0
+            );
+            println!(
+                "VAD: Speech ratio {:.1}% > 30%, keeping entire audio ({:.2}s)",
+                speech_ratio * 100.0,
+                audio_data.len() as f32 / 16000.0
+            );
+            return audio_data.to_vec();
+        }
+
+        // Low speech ratio - use segment extraction
+        let segments = self.get_speech_segments_with_duration(
+            audio_data,
+            chunk_size,
+            100, // min_speech_duration_ms
+            300, // min_silence_duration_ms
+        );
+
+        let mut filtered = Vec::new();
+        for segment in &segments {
+            filtered.extend_from_slice(segment.extract(audio_data));
+        }
+
+        println!(
+            "[TIMING] VAD filter_silence: {:.0}ms (processed {} chunks, found {} speech segments, {:.1}% speech)",
+            elapsed, num_chunks, segments.len(), speech_ratio * 100.0
+        );
+
+        let original_duration = audio_data.len() as f32 / 16000.0;
+        let filtered_duration = filtered.len() as f32 / 16000.0;
+        println!(
+            "VAD segments: {} segments, {:.2}s -> {:.2}s ({:.1}% kept)",
+            segments.len(), original_duration, filtered_duration,
+            (filtered_duration / original_duration) * 100.0
+        );
+
         filtered
+    }
+
+    /// Get speech segments with minimum duration constraints
+    ///
+    /// # Arguments
+    /// * `audio_data` - Full audio buffer
+    /// * `chunk_size` - Size of chunks to analyze (512, 1024, or 1536)
+    /// * `min_speech_duration_ms` - Minimum duration for a speech segment
+    /// * `min_silence_duration_ms` - Minimum silence duration to split segments
+    ///
+    /// # Returns
+    /// * `Vec<SpeechSegment>` - List of speech segments meeting duration constraints
+    fn get_speech_segments_with_duration(
+        &mut self,
+        audio_data: &[f32],
+        chunk_size: usize,
+        min_speech_duration_ms: usize,
+        min_silence_duration_ms: usize,
+    ) -> Vec<SpeechSegment> {
+        // Convert ms to samples (16kHz)
+        let min_speech_samples = (min_speech_duration_ms * 16000) / 1000;
+        let min_silence_samples = (min_silence_duration_ms * 16000) / 1000;
+
+        let mut segments = Vec::new();
+        let mut current_segment: Option<SpeechSegment> = None;
+        let mut silence_start: Option<usize> = None;
+
+        // Reset state before processing
+        self.reset();
+
+        for (chunk_idx, chunk) in audio_data.chunks(chunk_size).enumerate() {
+            // Handle incomplete chunks at the end by padding with zeros
+            let chunk_to_process = if chunk.len() != chunk_size {
+                let mut padded = vec![0.0f32; chunk_size];
+                padded[..chunk.len()].copy_from_slice(chunk);
+                padded
+            } else {
+                chunk.to_vec()
+            };
+
+            let start_sample = chunk_idx * chunk_size;
+            let end_sample = start_sample + chunk.len();
+            let is_speech = self.is_speech(&chunk_to_process);
+
+            match (&mut current_segment, is_speech) {
+                // Start new segment
+                (None, true) => {
+                    current_segment = Some(SpeechSegment {
+                        start: start_sample,
+                        end: end_sample,
+                    });
+                    silence_start = None;
+                }
+                // Continue segment
+                (Some(seg), true) => {
+                    // Speech resumed, extend segment
+                    seg.end = end_sample;
+                    silence_start = None;
+                }
+                // Start of silence
+                (Some(seg), false) => {
+                    if silence_start.is_none() {
+                        silence_start = Some(start_sample);
+                    } else if let Some(silence_began) = silence_start {
+                        // Check if silence is long enough to split
+                        let silence_duration = start_sample - silence_began;
+                        if silence_duration >= min_silence_samples {
+                            // End current segment at silence start
+                            seg.end = silence_began;
+
+                            // Only keep segment if it's long enough
+                            if seg.end - seg.start >= min_speech_samples {
+                                segments.push(current_segment.take().unwrap());
+                            } else {
+                                current_segment = None;
+                            }
+                            silence_start = None;
+                        }
+                    }
+                }
+                // No speech, no segment
+                (None, false) => {
+                    silence_start = None;
+                }
+            }
+        }
+
+        // Add last segment if exists and meets minimum duration
+        if let Some(seg) = current_segment {
+            if seg.end - seg.start >= min_speech_samples {
+                segments.push(seg);
+            }
+        }
+
+        segments
     }
 
     /// Analyze full audio and return speech segments with timestamps
