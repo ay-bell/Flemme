@@ -13,7 +13,7 @@ use hotkey::HotkeyListener;
 use config::settings::{LlmModel, ExecutionMode};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 // Audio command messages
 pub enum AudioCommand {
@@ -687,6 +687,9 @@ fn handle_recording_complete(
 
         println!("Sending audio to transcription engine...");
 
+        // Emit transcription started event to show loading indicator
+        let _ = _app_handle.emit("transcription-started", ());
+
         // Load settings to get language preference
         let settings = config::AppSettings::load().unwrap_or_default();
         let language = Some(settings.language);
@@ -717,6 +720,18 @@ fn handle_recording_complete(
 
         println!("[TIMING] Transcription worker (includes queue wait): {:.0}ms", transcribe_start.elapsed().as_millis());
         println!("Transcription completed: {}", transcription);
+
+        // Emit transcription completed event
+        let _ = _app_handle.emit("transcription-completed", ());
+
+        // Hide indicator window after CSS transition completes (300ms transition + 100ms buffer)
+        let app_handle_for_hide = _app_handle.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+            if let Some(window) = app_handle_for_hide.get_webview_window("indicator") {
+                let _ = window.hide();
+            }
+        });
 
         // Process through LLM if using a custom execution mode
         let settings = config::AppSettings::load().unwrap_or_default();
@@ -795,6 +810,9 @@ fn handle_recording_complete(
         println!("[TIMING] ==========================================");
         println!("[TIMING] TOTAL PIPELINE: {:.0}ms", pipeline_start.elapsed().as_millis());
         println!("[TIMING] ==========================================");
+
+        // Wait for indicator window to close and focus to return to previous app
+        std::thread::sleep(std::time::Duration::from_millis(600));
 
         // Auto-paste the final text if enabled in settings
         if !final_text.is_empty() {
@@ -961,6 +979,28 @@ fn get_active_mode() -> Result<String, String> {
     let settings = config::AppSettings::load()
         .map_err(|e| format!("Failed to load settings: {}", e))?;
     Ok(settings.active_mode)
+}
+
+/// Get display information for the indicator window
+#[tauri::command]
+fn get_indicator_info() -> Result<(String, String), String> {
+    let settings = config::AppSettings::load()
+        .map_err(|e| format!("Failed to load settings: {}", e))?;
+
+    // Get the active mode name
+    let mode_name = settings.execution_modes
+        .iter()
+        .find(|m| m.id == settings.active_mode)
+        .map(|m| m.name.clone())
+        .unwrap_or_else(|| String::from("Standard"));
+
+    // Get the model name (display name without extension)
+    let model_name = settings.model_name
+        .trim_end_matches(".bin")
+        .trim_start_matches("ggml-")
+        .to_string();
+
+    Ok((mode_name, model_name))
 }
 
 /// Set the active execution mode
@@ -1243,10 +1283,7 @@ pub fn run() {
                                         println!("Hotkey released (push-to-talk) - stopping recording and transcribing");
                                         let _ = app_handle.emit("recording-stopped", ());
 
-                                        // Hide indicator window
-                                        if let Some(window) = _app.get_webview_window("indicator") {
-                                            let _ = window.hide();
-                                        }
+                                        // Don't hide the window yet - it will be hidden after transcription completes
 
                                         handle_recording_complete(
                                             audio_tx_clone.clone(),
@@ -1266,10 +1303,7 @@ pub fn run() {
                                         *recording = false;
                                         let _ = app_handle.emit("recording-stopped", ());
 
-                                        // Hide indicator window
-                                        if let Some(window) = _app.get_webview_window("indicator") {
-                                            let _ = window.hide();
-                                        }
+                                        // Don't hide the window yet - it will be hidden after transcription completes
 
                                         handle_recording_complete(
                                             audio_tx_clone.clone(),
@@ -1430,6 +1464,7 @@ pub fn run() {
             delete_llm_model,
             get_execution_modes,
             get_active_mode,
+            get_indicator_info,
             set_active_mode,
             add_execution_mode,
             update_execution_mode,
