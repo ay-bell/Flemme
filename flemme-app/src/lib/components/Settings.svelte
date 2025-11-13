@@ -53,6 +53,7 @@
 
   // Settings state
   let activeTab = $state("parametres");
+  let modelsSubTab = $state("vocaux"); // Sub-tab for "IA et Modèles" section
   let hotkey = $state("Ctrl+Alt+R");
   let cancelKey = $state("Escape");
   let language = $state("fr");
@@ -83,6 +84,7 @@
   let newLlmApiUrl = $state("");
   let newLlmModelName = $state("");
   let newLlmApiKey = $state("");
+  let showAddLlmForm = $state(false);
 
   // Execution modes state
   let executionModes = $state<ExecutionMode[]>([]);
@@ -91,6 +93,7 @@
   let newModeName = $state("");
   let newModeSystemPrompt = $state("");
   let newModeLlmId = $state<string | null>(null);
+  let showAddModeForm = $state(false);
 
   const languages = [
     { value: "fr", label: "Français" },
@@ -569,14 +572,16 @@
   }
 
   function getModelLabel(modelName: string): string {
-    const modelMap: Record<string, string> = {
-      "ggml-base.bin": "Base",
-      "ggml-small.bin": "Small",
-      "ggml-medium.bin": "Medium",
-      "ggml-large-v2.bin": "Large V2",
-      "ggml-large-v3-turbo.bin": "Large V3 Turbo"
-    };
-    return modelMap[modelName] || modelName;
+    // Check for large-v3-turbo first (more specific)
+    if (modelName.includes("ggml-large-v3-turbo")) return "Whisper Large V3 Turbo";
+    // Then check for large-v2
+    if (modelName.includes("ggml-large-v2")) return "Whisper Large V2";
+    // Then check for medium, small, base
+    if (modelName.includes("ggml-medium")) return "Whisper Medium";
+    if (modelName.includes("ggml-small")) return "Whisper Small";
+    if (modelName.includes("ggml-base")) return "Whisper Base";
+    // Fallback to original name
+    return modelName;
   }
 
   function formatFileSize(sizeMb: number): string {
@@ -613,6 +618,7 @@
       newLlmApiUrl = "";
       newLlmModelName = "";
       newLlmApiKey = "";
+      showAddLlmForm = false;
 
       saveStatus = "Modèle LLM ajouté avec succès!";
       setTimeout(() => saveStatus = "", 3000);
@@ -701,6 +707,7 @@
       newModeName = "";
       newModeSystemPrompt = "";
       newModeLlmId = null;
+      showAddModeForm = false;
 
       saveStatus = "Mode d'exécution ajouté!";
       setTimeout(() => saveStatus = "", 3000);
@@ -785,7 +792,7 @@
   <!-- Left Sidebar -->
   <aside class="sidebar">
     <div class="logo">
-      <h1>Flemme</h1>
+      <img src="/LogoFlemme.png" alt="Flemme" class="logo-image" />
     </div>
 
     <nav class="nav-menu">
@@ -802,7 +809,7 @@
         onclick={() => activeTab = 'modeles'}
       >
         <img src="/icons/ModeleIA.svg" alt="" class="nav-icon" />
-        <span>Modèles IA</span>
+        <span>IA et Modèles</span>
       </button>
 
       <button
@@ -814,33 +821,20 @@
       </button>
 
       <button
-        class="nav-item {activeTab === 'llm' ? 'active' : ''}"
-        onclick={() => activeTab = 'llm'}
-      >
-        <svg class="nav-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="10"/>
-          <path d="M12 8v4m0 4h.01"/>
-        </svg>
-        <span>Modèles LLM</span>
-      </button>
-
-      <button
         class="nav-item {activeTab === 'modes' ? 'active' : ''}"
         onclick={() => activeTab = 'modes'}
       >
-        <svg class="nav-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="3" y="3" width="7" height="7"/>
-          <rect x="14" y="3" width="7" height="7"/>
-          <rect x="14" y="14" width="7" height="7"/>
-          <rect x="3" y="14" width="7" height="7"/>
-        </svg>
+        <img src="/icons/Mode.svg" alt="" class="nav-icon" />
         <span>Modes</span>
       </button>
     </nav>
 
     <!-- Active Mode Indicator -->
     <div class="active-mode-indicator">
-      <div class="mode-label">Mode actif</div>
+      <div class="mode-status-row">
+        <div class="status-dot"></div>
+        <div class="mode-label">Mode actif</div>
+      </div>
       <Badge variant="default" class="mode-badge">
         {executionModes.find(m => m.id === activeMode)?.name || "Standard"}
       </Badge>
@@ -851,9 +845,9 @@
   <main class="main-content">
     {#if activeTab === 'parametres'}
       <div class="content-section">
-        <h2 class="section-title">Configuration</h2>
+        <h2 class="section-title">Gestion de l'enregistrement</h2>
 
-        <div class="setting-group">
+        <div class="setting-group setting-with-margin">
           <span class="setting-label">Démarrer un enregistrement</span>
           {#if isEditingHotkey}
             <div class="hotkey-editor">
@@ -874,17 +868,14 @@
           {:else}
             <div class="hotkey-display-row">
               <div class="hotkey-display">
-                {#each hotkey.split("+") as key, i}
-                  {#if i > 0}<span class="hotkey-plus">+</span>{/if}
-                  <Badge variant="secondary">{key.trim().toLowerCase()}</Badge>
-                {/each}
+                {hotkey.split("+").map(k => k.trim().toLowerCase()).join(" + ")}
               </div>
-              <Button onclick={startEditingHotkey} variant="outline" size="sm">Modifier</Button>
+              <button class="modify-button" onclick={startEditingHotkey}>Modifier</button>
             </div>
           {/if}
         </div>
 
-        <div class="setting-group {pushToTalk ? 'disabled' : ''}">
+        <div class="setting-group setting-with-margin {pushToTalk ? 'disabled' : ''}">
           <span class="setting-label">Annuler un enregistrement</span>
           {#if isEditingCancelKey}
             <div class="hotkey-editor">
@@ -905,12 +896,9 @@
           {:else}
             <div class="hotkey-display-row">
               <div class="hotkey-display">
-                {#each cancelKey.split("+") as key, i}
-                  {#if i > 0}<span class="hotkey-plus">+</span>{/if}
-                  <Badge variant="secondary">{key.trim().toLowerCase()}</Badge>
-                {/each}
+                {cancelKey.split("+").map(k => k.trim().toLowerCase()).join(" + ")}
               </div>
-              <Button onclick={startEditingCancelKey} variant="outline" size="sm" disabled={pushToTalk}>Modifier</Button>
+              <button class="modify-button" onclick={startEditingCancelKey} disabled={pushToTalk}>Modifier</button>
             </div>
           {/if}
           {#if pushToTalk}
@@ -918,21 +906,35 @@
           {/if}
         </div>
 
-        <div class="setting-group">
+        <div class="setting-group setting-with-margin">
           <div class="setting-row">
-            <label class="setting-label" for="auto-paste-switch">Collage automatique</label>
+            <div class="label-with-tooltip">
+              <label class="setting-label" for="auto-paste-switch">Collage automatique</label>
+              <div class="tooltip-wrapper">
+                <span class="tooltip-icon">?</span>
+                <div class="tooltip-content">Coller automatiquement le résultat après l'exécution. Si désactivé, ctrl+v pour coller le texte</div>
+              </div>
+            </div>
             <Switch id="auto-paste-switch" bind:checked={autoPaste} />
           </div>
         </div>
 
-        <div class="setting-group">
+        <div class="setting-group setting-with-margin">
           <div class="setting-row">
-            <label class="setting-label" for="push-to-talk-switch">Push To Talk</label>
+            <div class="label-with-tooltip">
+              <label class="setting-label" for="push-to-talk-switch">Push To Talk</label>
+              <div class="tooltip-wrapper">
+                <span class="tooltip-icon">?</span>
+                <div class="tooltip-content">En push-to-talk, maintenir le raccourci clavier pour enregistrer. Si désactivé, veuillez réappuyer sur le raccourci clavier pour arrêter l'enregistrement.</div>
+              </div>
+            </div>
             <Switch id="push-to-talk-switch" bind:checked={pushToTalk} />
           </div>
         </div>
 
-        <div class="setting-group">
+        <h2 class="section-title">Autres options</h2>
+
+        <div class="setting-group setting-with-margin">
           <label class="setting-label" for="language-select">Langue</label>
           <select id="language-select" class="select-input" bind:value={language}>
             {#each languages as lang}
@@ -941,7 +943,7 @@
           </select>
         </div>
 
-        <div class="setting-group">
+        <div class="setting-group setting-with-margin">
           <label class="setting-label" for="device-select">Matériel</label>
           <div class="device-selector-row">
             <select id="device-select" class="select-input" bind:value={selectedDevice}>
@@ -952,94 +954,90 @@
                 </option>
               {/each}
             </select>
-            <Button onclick={refreshAudioDevices} variant="outline" size="sm">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style="margin-right: 4px;">
-                <path d="M13.65 2.35C12.2 0.9 10.21 0 8 0v2c1.66 0 3.14.69 4.22 1.78l-1.51 1.51L15 7V2l-1.35 1.35zM2 7l4.29-1.71-1.51-1.51C5.86 2.69 7.34 2 9 2V0C6.79 0 4.8.9 3.35 2.35L2 1v6zm6 9c-1.66 0-3.14-.69-4.22-1.78l1.51-1.51L1 11v5l1.35-1.35C3.8 15.1 5.79 16 8 16v-2zm5.65-2.35C12.86 14.31 11.34 15 9.66 15v2c2.21 0 4.2-.9 5.65-2.35L16 16v-6l-4.29 1.71 1.51 1.51z" fill="currentColor"/>
-              </svg>
-              Rafraîchir
-            </Button>
+            <button class="refresh-icon-button" onclick={refreshAudioDevices} aria-label="Rafraîchir les périphériques">
+              <img src="/icons/refresh.svg" alt="Rafraîchir" width="20" height="20" />
+            </button>
           </div>
-        </div>
-
-        <div class="button-group">
-          {#if saveStatus}
-            <p class="save-status {saveStatus.includes('succès') ? 'success' : 'error'}">
-              {saveStatus}
-            </p>
-          {/if}
-          <Button onclick={handleSave} disabled={loading} class="save-button">
-            Enregistrer
-          </Button>
         </div>
       </div>
     {:else if activeTab === 'modeles'}
       <div class="content-section">
-        <h2 class="section-title">Modèles disponibles</h2>
+        <div class="section-header">
+          <h2 class="section-title">IA et Modèles</h2>
+          <div class="tabs-container">
+            <button
+              class="tab-button {modelsSubTab === 'vocaux' ? 'active' : ''}"
+              onclick={() => modelsSubTab = 'vocaux'}
+            >
+              Modèles vocaux
+            </button>
+            <button
+              class="tab-button {modelsSubTab === 'llm' ? 'active' : ''}"
+              onclick={() => modelsSubTab = 'llm'}
+            >
+              Modèles LLM
+            </button>
+          </div>
+        </div>
 
+        {#if modelsSubTab === 'vocaux'}
         <div class="models-list">
           {#each availableModels as model}
             {@const modelLabel = getModelLabel(model.name)}
             {@const modelSize = formatFileSize(model.size_mb)}
             {@const isDownloading = downloadingModel === model.name}
             {@const progress = downloadProgress[model.name] || 0}
-            {@const precisionMap: Record<string, number> = {"Base": 3, "Small": 4, "Medium": 5, "Large V2": 5, "Large V3 Turbo": 5}}
-            {@const speedMap: Record<string, number> = {"Base": 5, "Small": 4, "Medium": 2, "Large V2": 1, "Large V3 Turbo": 3}}
+            {@const isActive = selectedModel === model.name}
+            {@const precisionMap: Record<string, number> = {"Whisper Base": 2, "Whisper Small": 3, "Whisper Medium": 4, "Whisper Large V2": 5, "Whisper Large V3 Turbo": 5}}
+            {@const speedMap: Record<string, number> = {"Whisper Base": 5, "Whisper Small": 4, "Whisper Medium": 3, "Whisper Large V2": 2, "Whisper Large V3 Turbo": 3}}
             {@const precision = precisionMap[modelLabel] || 3}
             {@const speed = speedMap[modelLabel] || 3}
 
-            <div class="model-item">
-              <label class="model-radio">
-                <input
-                  type="radio"
-                  name="model"
-                  value={model.name}
-                  checked={selectedModel === model.name}
-                  disabled={!model.is_downloaded}
-                  onchange={() => selectedModel = model.name}
-                />
-                <div class="model-info">
-                  <div class="model-header">
-                    <div class="model-name-status">
-                      <span class="model-name">{modelLabel}</span>
-                      {#if model.is_downloaded}
-                        <Badge variant="default">Téléchargé</Badge>
-                      {:else if isDownloading}
-                        <Badge variant="secondary">Téléchargement...</Badge>
-                      {:else}
-                        <Badge variant="outline">Non téléchargé</Badge>
-                      {/if}
-                    </div>
-                    <span class="model-size">{modelSize}</span>
+            <div class="model-item {isActive ? 'active' : ''}" onclick={(e) => {
+              if (!e.target.closest('.model-actions') && model.is_downloaded && !isDownloading) {
+                selectedModel = model.name;
+              }
+            }}>
+              <div class="model-info">
+                <div class="model-header">
+                  <div class="model-name-status">
+                    <span class="model-name">{modelLabel}</span>
+                    {#if isActive && model.is_downloaded}
+                      <Badge variant="default">Actif</Badge>
+                    {:else if isDownloading}
+                      <Badge variant="secondary">Téléchargement...</Badge>
+                    {/if}
                   </div>
-
-                  {#if isDownloading}
-                    <div class="progress-bar">
-                      <div class="progress-fill" style="width: {progress}%"></div>
-                      <span class="progress-text">{Math.round(progress)}%</span>
-                    </div>
-                  {:else}
-                    <div class="model-metrics">
-                      <div class="metric">
-                        <span class="metric-label">Précision</span>
-                        <div class="metric-dots">
-                          {#each Array(5) as _, i}
-                            <span class="dot {i < precision ? 'filled' : ''}"></span>
-                          {/each}
-                        </div>
-                      </div>
-
-                      <div class="metric">
-                        <span class="metric-label">Rapidité</span>
-                        <div class="metric-dots">
-                          {#each Array(5) as _, i}
-                            <span class="dot {i < speed ? 'filled' : ''}"></span>
-                          {/each}
-                        </div>
-                      </div>
-                    </div>
-                  {/if}
+                  <span class="model-size">{modelSize}</span>
                 </div>
-              </label>
+
+                {#if isDownloading}
+                  <div class="progress-bar">
+                    <div class="progress-fill" style="width: {progress}%"></div>
+                    <span class="progress-text">{Math.round(progress)}%</span>
+                  </div>
+                {:else}
+                  <div class="model-metrics">
+                    <div class="metric">
+                      <span class="metric-label">Précision</span>
+                      <div class="metric-dots">
+                        {#each Array(5) as _, i}
+                          <span class="dot {i < precision ? 'filled' : ''}"></span>
+                        {/each}
+                      </div>
+                    </div>
+
+                    <div class="metric">
+                      <span class="metric-label">Rapidité</span>
+                      <div class="metric-dots">
+                        {#each Array(5) as _, i}
+                          <span class="dot {i < speed ? 'filled' : ''}"></span>
+                        {/each}
+                      </div>
+                    </div>
+                  </div>
+                {/if}
+              </div>
 
               <div class="model-actions">
                 {#if !model.is_downloaded && !isDownloading}
@@ -1057,7 +1055,7 @@
                     class="icon-button delete"
                     aria-label="Supprimer le modèle {modelLabel}"
                     onclick={() => deleteModel(model.name)}
-                    disabled={selectedModel === model.name}
+                    disabled={isActive}
                   >
                     <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                       <path d="M2 4H14M6 4V2H10V4M3 4V14H13V4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
@@ -1069,94 +1067,71 @@
           {/each}
         </div>
 
-        {#if saveStatus}
+        {#if saveStatus && modelsSubTab === 'vocaux'}
           <p class="save-status {saveStatus.includes('succès') ? 'success' : 'error'}">
             {saveStatus}
           </p>
         {/if}
-      </div>
-    {:else if activeTab === 'vocabulaire'}
-      <div class="content-section">
-        <h2 class="section-title">Bibliothèque de mots</h2>
+        {:else if modelsSubTab === 'llm'}
+        <!-- LLM Models Content -->
 
-        <div class="vocabulary-input-group">
-          <input
-            type="text"
-            bind:value={newWord}
-            placeholder="mot personnalisé"
-            class="vocab-input"
-            onkeydown={(e) => e.key === 'Enter' && addCustomWord()}
-          />
-          <Button onclick={addCustomWord} class="add-button">Ajouter</Button>
-          <Button onclick={clearAllWords} variant="outline" class="clear-button">
-            Tout effacer
-          </Button>
-        </div>
-
-        <div class="custom-words-list">
-          {#each customWords as word}
-            <div class="word-tag">
-              <span>{word}</span>
-              <button class="remove-word" onclick={() => removeCustomWord(word)} aria-label="Supprimer {word}">
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                  <path d="M2 2L10 10M2 10L10 2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                </svg>
-              </button>
-            </div>
-          {/each}
-        </div>
-      </div>
-    {:else if activeTab === 'llm'}
-      <div class="content-section">
-        <h2 class="section-title">Modèles LLM</h2>
-
-        <!-- Add LLM Form -->
-        <div class="llm-form">
+        <!-- Add LLM Header with Toggle Button -->
+        <div class="add-mode-header">
           <h3 class="form-subtitle">Ajouter un modèle LLM</h3>
-          <div class="form-grid">
-            <div class="form-field">
-              <label for="llm-name">Nom</label>
-              <input
-                id="llm-name"
-                type="text"
-                bind:value={newLlmName}
-                placeholder="Ex: Gemini Flash"
-                class="text-input"
-              />
-            </div>
-            <div class="form-field">
-              <label for="llm-model-name">Nom du modèle</label>
-              <input
-                id="llm-model-name"
-                type="text"
-                bind:value={newLlmModelName}
-                placeholder="Ex: gemini-2.0-flash-exp"
-                class="text-input"
-              />
-            </div>
-            <div class="form-field full-width">
-              <label for="llm-api-url">URL de l'API</label>
-              <input
-                id="llm-api-url"
-                type="url"
-                bind:value={newLlmApiUrl}
-                placeholder="Ex: https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent"
-                class="text-input"
-              />
-            </div>
-            <div class="form-field full-width">
-              <label for="llm-api-key">Clé API</label>
-              <input
-                id="llm-api-key"
-                type="password"
-                bind:value={newLlmApiKey}
-                placeholder="Votre clé API"
-                class="text-input"
-              />
-            </div>
-          </div>
-          <Button onclick={addLlmModel} class="add-button">Ajouter le modèle</Button>
+          <button class="toggle-form-button" onclick={() => showAddLlmForm = !showAddLlmForm} aria-label="Afficher/Masquer le formulaire">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" style="transform: rotate({showAddLlmForm ? '45deg' : '0deg'}); transition: transform 0.2s;">
+              <path d="M10 4V16M4 10H16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </button>
         </div>
+
+        {#if showAddLlmForm}
+          <div class="llm-form">
+            <div class="form-grid">
+              <div class="form-field">
+                <label for="llm-name">Nom</label>
+                <input
+                  id="llm-name"
+                  type="text"
+                  bind:value={newLlmName}
+                  placeholder="Ex: Gemini Flash"
+                  class="text-input"
+                />
+              </div>
+              <div class="form-field">
+                <label for="llm-model-name">Nom du modèle</label>
+                <input
+                  id="llm-model-name"
+                  type="text"
+                  bind:value={newLlmModelName}
+                  placeholder="Ex: gemini-2.0-flash-exp"
+                  class="text-input"
+                />
+              </div>
+              <div class="form-field full-width">
+                <label for="llm-api-url">URL de l'API</label>
+                <input
+                  id="llm-api-url"
+                  type="url"
+                  bind:value={newLlmApiUrl}
+                  placeholder="Ex: https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent"
+                  class="text-input"
+                />
+              </div>
+              <div class="form-field full-width">
+                <label for="llm-api-key">Clé API</label>
+                <input
+                  id="llm-api-key"
+                  type="password"
+                  bind:value={newLlmApiKey}
+                  placeholder="Votre clé API"
+                  class="text-input"
+                />
+              </div>
+            </div>
+            <button class="modify-button" onclick={addLlmModel}>Ajouter</button>
+          </div>
+        {/if}
 
         <!-- LLM Models List -->
         <div class="llm-list">
@@ -1197,9 +1172,6 @@
                     <div class="llm-details">
                       <span class="detail-label">Modèle:</span> {model.model_name}
                     </div>
-                    <div class="llm-details">
-                      <span class="detail-label">URL:</span> {model.api_url}
-                    </div>
                   </div>
                   <div class="llm-actions">
                     <button class="icon-button" onclick={() => startEditingLlm(model)} aria-label="Modifier">
@@ -1219,52 +1191,93 @@
           {/if}
         </div>
 
-        {#if saveStatus}
+        {#if saveStatus && modelsSubTab === 'llm'}
           <p class="save-status {saveStatus.includes('succès') ? 'success' : 'error'}">
             {saveStatus}
           </p>
         {/if}
+        {/if}
+      </div>
+    {:else if activeTab === 'vocabulaire'}
+      <div class="content-section">
+        <h2 class="section-title">Bibliothèque de mots</h2>
+
+        <div class="vocabulary-input-group">
+          <input
+            type="text"
+            bind:value={newWord}
+            placeholder="mot personnalisé"
+            class="vocab-input"
+            onkeydown={(e) => e.key === 'Enter' && addCustomWord()}
+          />
+          <button class="modify-button" onclick={addCustomWord}>Ajouter</button>
+          <button class="secondary-button" onclick={clearAllWords}>Tout effacer</button>
+        </div>
+
+        <div class="custom-words-list">
+          {#each customWords as word}
+            <div class="word-tag">
+              <span>{word}</span>
+              <button class="remove-word" onclick={() => removeCustomWord(word)} aria-label="Supprimer {word}">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <path d="M2 2L10 10M2 10L10 2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+              </button>
+            </div>
+          {/each}
+        </div>
       </div>
     {:else if activeTab === 'modes'}
       <div class="content-section">
         <h2 class="section-title">Modes d'exécution</h2>
 
-        <!-- Add Mode Form -->
-        <div class="mode-form">
+        <!-- Add Mode Header with Toggle Button -->
+        <div class="add-mode-header">
           <h3 class="form-subtitle">Ajouter un mode</h3>
-          <div class="form-grid">
-            <div class="form-field">
-              <label for="mode-name">Nom du mode</label>
-              <input
-                id="mode-name"
-                type="text"
-                bind:value={newModeName}
-                placeholder="Ex: Correction orthographique"
-                class="text-input"
-              />
-            </div>
-            <div class="form-field">
-              <label for="mode-llm">Modèle LLM</label>
-              <select id="mode-llm" bind:value={newModeLlmId} class="select-input">
-                <option value={null}>Aucun (mode standard)</option>
-                {#each llmModels as model}
-                  <option value={model.id}>{model.name}</option>
-                {/each}
-              </select>
-            </div>
-            <div class="form-field full-width">
-              <label for="mode-prompt">Prompt système</label>
-              <textarea
-                id="mode-prompt"
-                bind:value={newModeSystemPrompt}
-                placeholder="Ex: Corrige l'orthographe et la grammaire du texte suivant."
-                class="textarea-input"
-                rows="4"
-              ></textarea>
-            </div>
-          </div>
-          <Button onclick={addExecutionMode} class="add-button">Ajouter le mode</Button>
+          <button class="toggle-form-button" onclick={() => showAddModeForm = !showAddModeForm} aria-label="Afficher/Masquer le formulaire">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" style="transform: rotate({showAddModeForm ? '45deg' : '0deg'}); transition: transform 0.2s;">
+              <path d="M10 4V16M4 10H16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </button>
         </div>
+
+        <!-- Add Mode Form -->
+        {#if showAddModeForm}
+          <div class="mode-form">
+            <div class="form-grid">
+              <div class="form-field">
+                <label for="mode-name">Nom du mode</label>
+                <input
+                  id="mode-name"
+                  type="text"
+                  bind:value={newModeName}
+                  placeholder="Ex: Correction orthographique"
+                  class="text-input"
+                />
+              </div>
+              <div class="form-field">
+                <label for="mode-llm">Modèle LLM</label>
+                <select id="mode-llm" bind:value={newModeLlmId} class="select-input">
+                  <option value={null}>Aucun (mode standard)</option>
+                  {#each llmModels as model}
+                    <option value={model.id}>{model.name}</option>
+                  {/each}
+                </select>
+              </div>
+              <div class="form-field full-width">
+                <label for="mode-prompt">Prompt système</label>
+                <textarea
+                  id="mode-prompt"
+                  bind:value={newModeSystemPrompt}
+                  placeholder="Ex: Corrige l'orthographe et la grammaire du texte suivant."
+                  class="textarea-input"
+                  rows="4"
+                ></textarea>
+              </div>
+            </div>
+            <button class="modify-button" onclick={addExecutionMode}>Ajouter</button>
+          </div>
+        {/if}
 
         <!-- Modes List -->
         <div class="modes-list">
@@ -1297,7 +1310,11 @@
                 </div>
               </div>
             {:else}
-              <div class="mode-item {mode.id === activeMode ? 'active' : ''}">
+              <div class="mode-item {mode.id === activeMode ? 'active' : ''}" onclick={(e) => {
+                if (!e.target.closest('.mode-actions')) {
+                  setActiveModeHandler(mode.id);
+                }
+              }}>
                 <div class="mode-info">
                   <div class="mode-header">
                     <div class="mode-name">{mode.name}</div>
@@ -1308,16 +1325,8 @@
                   <div class="mode-details">
                     <span class="detail-label">Modèle LLM:</span> {getLlmModelName(mode.llm_model_id)}
                   </div>
-                  {#if mode.system_prompt}
-                    <div class="mode-prompt">{mode.system_prompt}</div>
-                  {/if}
                 </div>
                 <div class="mode-actions">
-                  {#if mode.id !== activeMode}
-                    <Button onclick={() => setActiveModeHandler(mode.id)} size="sm" variant="outline">
-                      Activer
-                    </Button>
-                  {/if}
                   {#if mode.id !== 'standard'}
                     <button class="icon-button" onclick={() => startEditingMode(mode)} aria-label="Modifier">
                       <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
@@ -1353,57 +1362,86 @@
     padding: 0;
   }
 
+  /* Switch colors and size for dark theme */
+  :global([data-slot="switch"][data-state="checked"]) {
+    background-color: #4FB094 !important;
+  }
+
+  :global([data-slot="switch"][data-state="unchecked"]) {
+    background-color: #969191 !important;
+  }
+
+  :global([data-slot="switch"]) {
+    height: 1.5rem !important;
+    width: 2.75rem !important;
+  }
+
+  :global([data-slot="switch-thumb"]) {
+    width: 1.25rem !important;
+    height: 1.25rem !important;
+  }
+
+  :global([data-slot="switch-thumb"][data-state="checked"]) {
+    transform: translateX(0.25rem) !important;
+  }
+
   .app-container {
     display: flex;
     height: 100vh;
-    background: white;
+    background: #000000;
   }
 
   /* Sidebar */
   .sidebar {
     width: 240px;
-    background: #F3F3F3;
-    padding: 32px 24px;
+    background: #202020;
+    padding: 32px 0;
     display: flex;
     flex-direction: column;
   }
 
-  .logo h1 {
-    font-family: 'Nunito', sans-serif;
-    font-weight: 900;
-    font-size: 32px;
-    margin: 0 0 48px 0;
-    color: #000;
+  .logo {
+    padding: 0 24px;
+  }
+
+  .logo-image {
+    width: 100%;
+    height: auto;
+    margin-bottom: 48px;
+    max-width: 192px;
+    display: block;
   }
 
   .nav-menu {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 0;
   }
 
   .nav-item {
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 12px 16px;
+    padding: 12px 24px;
     background: transparent;
     border: none;
-    border-radius: 8px;
+    border-radius: 0;
     cursor: pointer;
-    font-size: 14px;
+    font-size: 20px;
     font-weight: 500;
-    color: #666;
+    color: #BDBDBD;
     transition: all 0.2s;
+    width: 100%;
+    text-align: left;
   }
 
   .nav-item:hover {
-    background: rgba(0, 0, 0, 0.05);
+    background: rgba(255, 255, 255, 0.05);
   }
 
   .nav-item.active {
-    background: #4FB094;
-    color: white;
+    background: #000000;
+    color: #BDBDBD;
   }
 
   .nav-icon {
@@ -1426,11 +1464,16 @@
     font-size: 24px;
     font-weight: 500;
     margin: 0 0 32px 0;
-    color: #000;
+    color: #BDBDBD;
   }
 
   .setting-group {
     margin-bottom: 24px;
+  }
+
+  .setting-with-margin {
+    margin-left: 24px;
+    margin-right: 24px;
   }
 
   .setting-group.disabled {
@@ -1449,8 +1492,7 @@
     display: block;
     font-size: 14px;
     font-weight: 300;
-    color: #666;
-    margin-bottom: 8px;
+    color: #BDBDBD;
   }
 
   .setting-row {
@@ -1459,10 +1501,73 @@
     align-items: center;
   }
 
-  .hotkey-display {
+  .label-with-tooltip {
+    display: flex;
+    gap: 8px;
+  }
+
+  .tooltip-wrapper {
+    position: relative;
+    display: inline-flex;
+  }
+
+  .tooltip-icon {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #4FB094;
+    color: #FFFFFF;
     display: flex;
     align-items: center;
-    gap: 8px;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 600;
+    cursor: help;
+    vertical-align: super;
+  }
+
+  .tooltip-content {
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 8px);
+    transform: translateX(-50%);
+    background: #4FB094;
+    color: #FFFFFF;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 1.4;
+    white-space: normal;
+    width: 250px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+    z-index: 1000;
+  }
+
+  .tooltip-content::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 6px solid transparent;
+    border-top-color: #4FB094;
+  }
+
+  .tooltip-wrapper:hover .tooltip-content {
+    opacity: 1;
+  }
+
+  .hotkey-display {
+    padding: 8px 16px;
+    background: #202020;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    color: #BDBDBD;
+    display: inline-block;
   }
 
   .hotkey-display-row {
@@ -1470,11 +1575,51 @@
     align-items: center;
     justify-content: space-between;
     gap: 16px;
+    margin-top: 8px;
   }
 
-  .hotkey-plus {
-    color: #999;
+  .modify-button {
+    width: 100px;
+    padding: 8px 16px;
+    background: #4FB094;
+    border: none;
+    border-radius: 6px;
     font-size: 14px;
+    font-weight: 500;
+    color: #FFFFFF;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .modify-button:hover:not(:disabled) {
+    background: #3D8A76;
+  }
+
+  .modify-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .secondary-button {
+    padding: 8px 16px;
+    background: #202020;
+    border: 1px solid #4FB094;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    color: #BDBDBD;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .secondary-button:hover:not(:disabled) {
+    background: #2A2A2A;
+    border-color: #3D8A76;
+  }
+
+  .secondary-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 
   .hotkey-editor {
@@ -1490,14 +1635,14 @@
     border-radius: 6px;
     font-size: 14px;
     font-weight: 500;
-    background: white;
-    color: #000;
+    background: #202020;
+    color: #BDBDBD;
     text-align: center;
   }
 
   .hotkey-input:focus {
     outline: none;
-    border-color: #3A8B75;
+    border-color: #4FB094;
   }
 
   .hotkey-editor-buttons {
@@ -1509,11 +1654,12 @@
   .select-input {
     width: 100%;
     padding: 10px 12px;
-    border: 1px solid #E0E0E0;
+    border: 1px solid #333333;
     border-radius: 6px;
     font-size: 14px;
     font-weight: 300;
-    background: white;
+    background: #202020;
+    color: #BDBDBD;
     cursor: pointer;
   }
 
@@ -1525,6 +1671,24 @@
 
   .device-selector-row .select-input {
     flex: 1;
+  }
+
+  .refresh-icon-button {
+    padding: 8px;
+    background: transparent;
+    border: 1px solid #333333;
+    border-radius: 6px;
+    cursor: pointer;
+    color: #4FB094;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .refresh-icon-button:hover {
+    background: #202020;
+    border-color: #4FB094;
   }
 
   .button-group {
@@ -1559,22 +1723,21 @@
     align-items: center;
     gap: 16px;
     padding: 16px;
-    border: 1px solid #E0E0E0;
+    border: 1px solid #333333;
     border-radius: 8px;
+    background: #000000;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s;
   }
 
-  .model-radio {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    cursor: pointer;
+  .model-item:hover:not(.active) {
+    background: #0A0A0A;
+    border-color: #4FB094;
   }
 
-  .model-radio input[type="radio"] {
-    width: 18px;
-    height: 18px;
-    cursor: pointer;
+  .model-item.active {
+    border-color: #4FB094;
+    background: #1A2F2A;
   }
 
   .model-info {
@@ -1597,20 +1760,20 @@
   .model-name {
     font-size: 16px;
     font-weight: 500;
-    color: #000;
+    color: #BDBDBD;
   }
 
   .model-size {
     font-size: 14px;
     font-weight: 300;
-    color: #666;
+    color: #808080;
   }
 
   .progress-bar {
     position: relative;
     width: 100%;
     height: 24px;
-    background: #F3F3F3;
+    background: #202020;
     border-radius: 4px;
     overflow: hidden;
   }
@@ -1631,7 +1794,7 @@
     transform: translate(-50%, -50%);
     font-size: 12px;
     font-weight: 500;
-    color: #000;
+    color: #BDBDBD;
     z-index: 1;
   }
 
@@ -1649,7 +1812,7 @@
   .metric-label {
     font-size: 12px;
     font-weight: 300;
-    color: #666;
+    color: #808080;
   }
 
   .metric-dots {
@@ -1661,7 +1824,7 @@
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    background: #E0E0E0;
+    background: #333333;
   }
 
   .dot.filled {
@@ -1676,19 +1839,21 @@
   .icon-button {
     padding: 8px;
     background: transparent;
-    border: 1px solid #E0E0E0;
+    border: 1px solid #333333;
     border-radius: 6px;
     cursor: pointer;
-    color: #666;
+    color: #4FB094;
     transition: all 0.2s;
   }
 
   .icon-button:hover {
-    background: #F3F3F3;
+    background: #202020;
+    border-color: #4FB094;
   }
 
   .icon-button.delete {
     color: #EF4444;
+    border-color: #EF4444;
   }
 
   /* Vocabulary Tab */
@@ -1701,14 +1866,16 @@
   .vocab-input {
     flex: 1;
     padding: 10px 12px;
-    border: 1px solid #E0E0E0;
+    border: 1px solid #333333;
     border-radius: 6px;
     font-size: 14px;
     font-weight: 300;
+    background: #202020;
+    color: #BDBDBD;
   }
 
   .vocab-input::placeholder {
-    color: #999;
+    color: #666666;
   }
 
   .custom-words-list {
@@ -1722,10 +1889,12 @@
     align-items: center;
     gap: 8px;
     padding: 8px 12px;
-    background: #F3F3F3;
+    background: #202020;
+    border: 1px solid #333333;
     border-radius: 6px;
     font-size: 14px;
     font-weight: 300;
+    color: #BDBDBD;
   }
 
   .remove-word {
@@ -1746,27 +1915,75 @@
   /* Active Mode Indicator */
   .active-mode-indicator {
     margin-top: auto;
-    padding: 16px;
-    border-top: 1px solid #E0E0E0;
+    padding: 16px 24px;
+    border-top: 1px solid #333333;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .mode-status-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #4FB094;
   }
 
   .mode-label {
-    font-size: 12px;
+    font-size: 14px;
     font-weight: 300;
-    color: #999;
-    margin-bottom: 8px;
+    color: #808080;
   }
 
   .mode-badge {
     display: inline-block;
+    font-size: 14px;
   }
 
   /* LLM and Modes Tabs */
   .form-subtitle {
     font-size: 18px;
     font-weight: 500;
-    color: #000;
+    color: #BDBDBD;
     margin: 32px 0 16px 0;
+  }
+
+  .add-mode-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 0 0 16px 0;
+  }
+
+  .add-mode-header .form-subtitle {
+    margin: 0;
+  }
+
+  .toggle-form-button {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    background: transparent;
+    border: 1px solid #4FB094;
+    border-radius: 6px;
+    cursor: pointer;
+    color: #4FB094;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .toggle-form-button:hover {
+    background: #4FB094;
+    color: #FFFFFF;
   }
 
   .form-grid {
@@ -1789,17 +2006,18 @@
   .form-field label {
     font-size: 14px;
     font-weight: 300;
-    color: #666;
+    color: #BDBDBD;
   }
 
   .text-input {
     width: 100%;
     padding: 10px 12px;
-    border: 1px solid #E0E0E0;
+    border: 1px solid #333333;
     border-radius: 6px;
     font-size: 14px;
     font-weight: 300;
-    background: white;
+    background: #202020;
+    color: #BDBDBD;
   }
 
   .text-input:focus {
@@ -1810,11 +2028,12 @@
   .textarea-input {
     width: 100%;
     padding: 10px 12px;
-    border: 1px solid #E0E0E0;
+    border: 1px solid #333333;
     border-radius: 6px;
     font-size: 14px;
     font-weight: 300;
-    background: white;
+    background: #202020;
+    color: #BDBDBD;
     font-family: inherit;
     resize: vertical;
   }
@@ -1851,9 +2070,19 @@
     align-items: center;
     gap: 16px;
     padding: 16px;
-    border: 1px solid #E0E0E0;
+    border: 1px solid #333333;
     border-radius: 8px;
-    background: white;
+    background: #000000;
+  }
+
+  .mode-item:not(.editing) {
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s;
+  }
+
+  .mode-item:not(.editing):hover:not(.active) {
+    background: #0A0A0A;
+    border-color: #4FB094;
   }
 
   .llm-item.editing,
@@ -1864,7 +2093,7 @@
 
   .mode-item.active {
     border-color: #4FB094;
-    background: #F0FAF7;
+    background: #1A2F2A;
   }
 
   .llm-info,
@@ -1876,7 +2105,7 @@
   .mode-name {
     font-size: 16px;
     font-weight: 500;
-    color: #000;
+    color: #BDBDBD;
     margin-bottom: 8px;
   }
 
@@ -1891,23 +2120,23 @@
   .mode-details {
     font-size: 14px;
     font-weight: 300;
-    color: #666;
+    color: #808080;
     margin-bottom: 4px;
   }
 
   .detail-label {
     font-weight: 500;
-    color: #000;
+    color: #BDBDBD;
   }
 
   .mode-prompt {
     margin-top: 8px;
     padding: 12px;
-    background: #F9F9F9;
+    background: #202020;
     border-radius: 6px;
     font-size: 13px;
     font-weight: 300;
-    color: #666;
+    color: #808080;
     line-height: 1.5;
   }
 
@@ -1921,8 +2150,50 @@
   .llm-form,
   .mode-form {
     padding: 24px;
-    background: #F9F9F9;
+    background: #202020;
     border-radius: 8px;
     margin-bottom: 32px;
+  }
+
+  /* Section Header with Tabs */
+  .section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 32px;
+  }
+
+  .section-header .section-title {
+    margin: 0;
+  }
+
+  .tabs-container {
+    display: flex;
+    gap: 4px;
+    background: #202020;
+    padding: 4px;
+    border-radius: 8px;
+  }
+
+  .tab-button {
+    padding: 8px 16px;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    color: #808080;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .tab-button:hover {
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  .tab-button.active {
+    background: #333333;
+    color: #4FB094;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
   }
 </style>
