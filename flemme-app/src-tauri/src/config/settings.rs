@@ -48,7 +48,7 @@ fn default_active_mode() -> String {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
-            hotkey: String::from("Ctrl+Alt+R"),
+            hotkey: String::from("Ctrl+Shift+R"),
             language: String::from("fr"),
             auto_paste: true,
             model_name: String::from("ggml-small-q5_1.bin"),

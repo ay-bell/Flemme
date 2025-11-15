@@ -20,8 +20,8 @@ impl HotkeyListener {
         // Try to parse the hotkey from settings, fallback to default if parsing fails
         Shortcut::from_str(&settings.hotkey)
             .unwrap_or_else(|_| {
-                eprintln!("Failed to parse hotkey '{}', using default Ctrl+Alt+R", settings.hotkey);
-                Shortcut::from_str("Ctrl+Alt+R").unwrap()
+                eprintln!("Failed to parse hotkey '{}', using default Ctrl+Shift+R", settings.hotkey);
+                Shortcut::from_str("Ctrl+Shift+R").unwrap()
             })
     }
 }

@@ -33,7 +33,10 @@ impl TranscriptionEngine for WhisperEngine {
 
         // GPU acceleration detection
         #[cfg(feature = "cuda")]
-        println!("GPU Acceleration: CUDA enabled (will auto-detect NVIDIA GPU at runtime)");
+        {
+            println!("GPU Acceleration: CUDA enabled (will auto-detect NVIDIA GPU at runtime)");
+            println!("Note: If CUDA initialization fails, the app will automatically fallback to CPU mode");
+        }
         #[cfg(not(feature = "cuda"))]
         println!("GPU Acceleration: Disabled (CPU only)");
 
@@ -89,14 +92,25 @@ impl TranscriptionEngine for WhisperEngine {
             params.set_translate(false);
         }
 
-        // Set initial prompt with custom words for contextual biasing
-        if let Some(words) = custom_words {
+        // Set initial prompt to improve punctuation and contextual biasing
+        // Adding a well-punctuated example helps Whisper maintain proper punctuation
+        let punctuation_example = "Bonjour, ceci est un exemple avec une ponctuation correcte.";
+
+        // Build the final prompt
+        let final_prompt = if let Some(words) = custom_words {
             if !words.is_empty() {
-                let prompt = words.join(", ");
-                params.set_initial_prompt(&prompt);
-                println!("Using contextual biasing with {} custom words: {}", words.len(), prompt);
+                let custom_words_str = words.join(", ");
+                println!("Using contextual biasing with {} custom words: {}", words.len(), custom_words_str);
+                format!("{} {}", punctuation_example, custom_words_str)
+            } else {
+                punctuation_example.to_string()
             }
-        }
+        } else {
+            punctuation_example.to_string()
+        };
+
+        params.set_initial_prompt(&final_prompt);
+        println!("Initial prompt set to improve punctuation");
 
         // Disable printing and other output
         params.set_print_special(false);
