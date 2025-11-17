@@ -10,7 +10,7 @@ use audio::{AudioRecorder, VoiceActivityDetector};
 use transcription::engine::TranscriptionEngine;
 use clipboard::ClipboardManager;
 use hotkey::HotkeyListener;
-use config::settings::{LlmModel, ExecutionMode};
+use config::settings::{LlmModel, ExecutionMode, LlmServiceType};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -749,44 +749,55 @@ fn handle_recording_complete(
                     if let Some(llm_model) = llm_model {
                         println!("=== EXECUTING MODE: {} ===", mode.name);
                         println!("Using LLM: {}", llm_model.name);
+                        println!("Service Type: {:?}", llm_model.service_type);
 
-                        // Get API key from keyring
-                        match llm::keyring_manager::get_api_key(llm_model_id) {
-                            Ok(Some(api_key)) => {
-                                // Call the LLM asynchronously
-                                let llm_model_clone = llm_model.clone();
-                                let system_prompt = mode.system_prompt.clone();
-                                let transcription_clone = transcription.clone();
-
-                                println!("Calling LLM API...");
-                                let runtime = tokio::runtime::Runtime::new().unwrap();
-                                match runtime.block_on(llm::call_llm(
-                                    &llm_model_clone,
-                                    &api_key,
-                                    &system_prompt,
-                                    &transcription_clone
-                                )) {
-                                    Ok(llm_response) => {
-                                        println!("LLM processing successful");
-                                        llm_response
-                                    }
-                                    Err(e) => {
-                                        eprintln!("LLM call failed: {}", e);
-                                        eprintln!("Falling back to raw transcription");
-                                        transcription
-                                    }
+                        // Get API key from keyring, or use empty string for local providers
+                        let api_key = if llm_model.service_type.requires_api_key() {
+                            match llm::keyring_manager::get_api_key(llm_model_id) {
+                                Ok(Some(key)) => key,
+                                Ok(None) => {
+                                    eprintln!("No API key found for LLM: {}", llm_model_id);
+                                    eprintln!("Falling back to raw transcription");
+                                    transcription.clone()
+                                }
+                                Err(e) => {
+                                    eprintln!("Failed to retrieve API key: {}", e);
+                                    eprintln!("Falling back to raw transcription");
+                                    transcription.clone()
                                 }
                             }
-                            Ok(None) => {
-                                eprintln!("No API key found for LLM: {}", llm_model_id);
-                                eprintln!("Falling back to raw transcription");
-                                transcription
+                        } else {
+                            println!("Local LLM provider - no API key required");
+                            String::new()
+                        };
+
+                        // Only proceed if we got an API key (or don't need one)
+                        if !llm_model.service_type.requires_api_key() || !api_key.is_empty() {
+                            // Call the LLM asynchronously
+                            let llm_model_clone = llm_model.clone();
+                            let system_prompt = mode.system_prompt.clone();
+                            let transcription_clone = transcription.clone();
+
+                            println!("Calling LLM API...");
+                            let runtime = tokio::runtime::Runtime::new().unwrap();
+                            match runtime.block_on(llm::call_llm(
+                                &llm_model_clone,
+                                &api_key,
+                                &system_prompt,
+                                &transcription_clone
+                            )) {
+                                Ok(llm_response) => {
+                                    println!("LLM processing successful");
+                                    llm_response
+                                }
+                                Err(e) => {
+                                    eprintln!("LLM call failed: {}", e);
+                                    eprintln!("Falling back to raw transcription");
+                                    transcription
+                                }
                             }
-                            Err(e) => {
-                                eprintln!("Failed to retrieve API key: {}", e);
-                                eprintln!("Falling back to raw transcription");
-                                transcription
-                            }
+                        } else {
+                            transcription
                         }
                     } else {
                         eprintln!("LLM model not found: {}", llm_model_id);
@@ -870,6 +881,7 @@ fn add_llm_model(
     api_url: String,
     model_name: String,
     api_key: String,
+    service_type: Option<String>,
 ) -> Result<String, String> {
     let mut settings = config::AppSettings::load()
         .map_err(|e| format!("Failed to load settings: {}", e))?;
@@ -877,8 +889,18 @@ fn add_llm_model(
     // Generate a unique ID
     let id = format!("llm_{}", uuid::Uuid::new_v4().to_string());
 
-    // Store API key in keyring
-    llm::keyring_manager::store_api_key(&id, &api_key)?;
+    // Parse service type or auto-detect from URL
+    let service_type = if let Some(st) = service_type {
+        serde_json::from_str(&format!("\"{}\"", st))
+            .unwrap_or_else(|_| LlmServiceType::from_url(&api_url))
+    } else {
+        LlmServiceType::from_url(&api_url)
+    };
+
+    // Store API key in keyring (only if required for this service type)
+    if service_type.requires_api_key() && !api_key.is_empty() {
+        llm::keyring_manager::store_api_key(&id, &api_key)?;
+    }
 
     // Add model to settings
     settings.llm_models.push(LlmModel {
@@ -886,6 +908,7 @@ fn add_llm_model(
         name,
         api_url,
         model_name,
+        service_type,
     });
 
     settings.save()
@@ -903,6 +926,7 @@ fn update_llm_model(
     api_url: String,
     model_name: String,
     api_key: Option<String>,
+    service_type: Option<String>,
 ) -> Result<(), String> {
     let mut settings = config::AppSettings::load()
         .map_err(|e| format!("Failed to load settings: {}", e))?;
@@ -914,12 +938,20 @@ fn update_llm_model(
 
     // Update model fields
     model.name = name;
-    model.api_url = api_url;
+    model.api_url = api_url.clone();
     model.model_name = model_name;
 
-    // Update API key if provided
+    // Update service type if provided, otherwise auto-detect
+    if let Some(st) = service_type {
+        model.service_type = serde_json::from_str(&format!("\"{}\"", st))
+            .unwrap_or_else(|_| LlmServiceType::from_url(&api_url));
+    }
+
+    // Update API key if provided (only if required for this service type)
     if let Some(key) = api_key {
-        llm::keyring_manager::store_api_key(&id, &key)?;
+        if model.service_type.requires_api_key() && !key.is_empty() {
+            llm::keyring_manager::store_api_key(&id, &key)?;
+        }
     }
 
     settings.save()
@@ -959,6 +991,32 @@ fn delete_llm_model(id: String) -> Result<(), String> {
 
     println!("LLM model deleted: {}", id);
     Ok(())
+}
+
+/// Detect available models from LM Studio
+#[tauri::command]
+async fn detect_lm_studio_models(port: Option<u16>) -> Result<Vec<llm::LMStudioModel>, String> {
+    llm::get_lm_studio_models(port).await
+}
+
+/// Detect available models from Ollama
+#[tauri::command]
+async fn detect_ollama_models(port: Option<u16>) -> Result<Vec<llm::OllamaModel>, String> {
+    llm::get_ollama_models(port).await
+}
+
+/// Check if a local LLM service is running
+#[tauri::command]
+async fn check_local_service_status(service_type: String, port: Option<u16>) -> Result<bool, String> {
+    match service_type.as_str() {
+        "lmstudio" => {
+            llm::get_lm_studio_models(port).await.map(|_| true).or(Ok(false))
+        }
+        "ollama" => {
+            llm::get_ollama_models(port).await.map(|_| true).or(Ok(false))
+        }
+        _ => Err(format!("Unknown service type: {}", service_type))
+    }
 }
 
 // ============================================================================
@@ -1462,6 +1520,9 @@ pub fn run() {
             add_llm_model,
             update_llm_model,
             delete_llm_model,
+            detect_lm_studio_models,
+            detect_ollama_models,
+            check_local_service_status,
             get_execution_modes,
             get_active_mode,
             get_indicator_info,

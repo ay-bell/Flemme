@@ -4,6 +4,51 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
+/// LLM service type
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum LlmServiceType {
+    OpenRouter,
+    Gemini,
+    OpenAI,
+    #[serde(rename = "lmstudio")]
+    LMStudio,
+    Ollama,
+}
+
+impl Default for LlmServiceType {
+    fn default() -> Self {
+        LlmServiceType::OpenRouter
+    }
+}
+
+impl LlmServiceType {
+    /// Auto-detect service type from URL for backward compatibility
+    pub fn from_url(url: &str) -> Self {
+        if url.contains("openrouter.ai") {
+            LlmServiceType::OpenRouter
+        } else if url.contains("generativelanguage.googleapis.com") {
+            LlmServiceType::Gemini
+        } else if url.contains("localhost:1234") || url.contains("127.0.0.1:1234") {
+            LlmServiceType::LMStudio
+        } else if url.contains("localhost:11434") || url.contains("127.0.0.1:11434") {
+            LlmServiceType::Ollama
+        } else if url.contains("api.openai.com") {
+            LlmServiceType::OpenAI
+        } else {
+            LlmServiceType::OpenRouter // Default fallback
+        }
+    }
+
+    /// Returns true if this service type requires an API key
+    pub fn requires_api_key(&self) -> bool {
+        match self {
+            LlmServiceType::LMStudio | LlmServiceType::Ollama => false,
+            _ => true,
+        }
+    }
+}
+
 /// Configuration for an LLM model
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmModel {
@@ -11,6 +56,8 @@ pub struct LlmModel {
     pub name: String,
     pub api_url: String,
     pub model_name: String,
+    #[serde(default)]
+    pub service_type: LlmServiceType,
 }
 
 /// Configuration for an execution mode
@@ -104,12 +151,25 @@ impl AppSettings {
         let mut settings: AppSettings = serde_json::from_str(&contents)
             .map_err(|e| format!("Failed to parse settings: {}", e))?;
 
+        // Auto-detect service type for existing LLM models (backward compatibility)
+        let mut needs_save = false;
+        for model in &mut settings.llm_models {
+            if model.service_type == LlmServiceType::default() {
+                model.service_type = LlmServiceType::from_url(&model.api_url);
+                println!("Auto-detected service type for '{}': {:?}", model.name, model.service_type);
+                needs_save = true;
+            }
+        }
+
         // If custom_words is empty and this is a fresh migration, initialize with defaults
         if settings.custom_words.is_empty() {
             let defaults = Self::default();
             settings.custom_words = defaults.custom_words;
             println!("Initialized custom_words with defaults");
-            // Save the updated settings
+            needs_save = true;
+        }
+
+        if needs_save {
             let _ = settings.save();
         }
 

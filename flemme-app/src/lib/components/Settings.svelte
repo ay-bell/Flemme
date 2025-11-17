@@ -84,7 +84,14 @@
   let newLlmApiUrl = $state("");
   let newLlmModelName = $state("");
   let newLlmApiKey = $state("");
+  let newLlmServiceType = $state("openrouter");
   let showAddLlmForm = $state(false);
+
+  // Local LLM providers state
+  let lmStudioModels = $state<any[]>([]);
+  let ollamaModels = $state<any[]>([]);
+  let detectingModels = $state(false);
+  let serviceStatus = $state<Record<string, boolean>>({});
 
   // Execution modes state
   let executionModes = $state<ExecutionMode[]>([]);
@@ -593,8 +600,10 @@
 
   // LLM Management functions
   async function addLlmModel() {
-    if (!newLlmName.trim() || !newLlmApiUrl.trim() || !newLlmModelName.trim() || !newLlmApiKey.trim()) {
-      saveStatus = "Tous les champs sont requis";
+    // Validation: API key only required for non-local services
+    const requiresApiKey = !["lmstudio", "ollama"].includes(newLlmServiceType);
+    if (!newLlmName.trim() || !newLlmApiUrl.trim() || !newLlmModelName.trim() || (requiresApiKey && !newLlmApiKey.trim())) {
+      saveStatus = "Tous les champs requis doivent être remplis";
       setTimeout(() => saveStatus = "", 2000);
       return;
     }
@@ -604,20 +613,23 @@
         name: newLlmName.trim(),
         apiUrl: newLlmApiUrl.trim(),
         modelName: newLlmModelName.trim(),
-        apiKey: newLlmApiKey.trim()
+        apiKey: newLlmApiKey.trim() || "",
+        serviceType: newLlmServiceType
       });
 
       llmModels = [...llmModels, {
         id,
         name: newLlmName.trim(),
         api_url: newLlmApiUrl.trim(),
-        model_name: newLlmModelName.trim()
+        model_name: newLlmModelName.trim(),
+        service_type: newLlmServiceType
       }];
 
       newLlmName = "";
       newLlmApiUrl = "";
       newLlmModelName = "";
       newLlmApiKey = "";
+      newLlmServiceType = "openrouter";
       showAddLlmForm = false;
 
       saveStatus = "Modèle LLM ajouté avec succès!";
@@ -680,6 +692,81 @@
   function cancelEditingLlm() {
     editingLlm = null;
     newLlmApiKey = "";
+  }
+
+  // Local LLM Detection functions
+  async function detectLMStudioModels() {
+    detectingModels = true;
+    try {
+      lmStudioModels = await invoke("detect_lm_studio_models", { port: null });
+      serviceStatus["lmstudio"] = true;
+      saveStatus = `Détecté ${lmStudioModels.length} modèles LM Studio`;
+      setTimeout(() => saveStatus = "", 3000);
+    } catch (error) {
+      console.error("Failed to detect LM Studio models:", error);
+      serviceStatus["lmstudio"] = false;
+      saveStatus = "LM Studio n'est pas démarré";
+      setTimeout(() => saveStatus = "", 3000);
+    } finally {
+      detectingModels = false;
+    }
+  }
+
+  async function detectOllamaModels() {
+    detectingModels = true;
+    try {
+      ollamaModels = await invoke("detect_ollama_models", { port: null });
+      serviceStatus["ollama"] = true;
+      saveStatus = `Détecté ${ollamaModels.length} modèles Ollama`;
+      setTimeout(() => saveStatus = "", 3000);
+    } catch (error) {
+      console.error("Failed to detect Ollama models:", error);
+      serviceStatus["ollama"] = false;
+      saveStatus = "Ollama n'est pas démarré";
+      setTimeout(() => saveStatus = "", 3000);
+    } finally {
+      detectingModels = false;
+    }
+  }
+
+  function handleServiceTypeChange() {
+    // Auto-fill URL and clear model name based on service type
+    switch (newLlmServiceType) {
+      case "lmstudio":
+        newLlmApiUrl = "http://localhost:1234/v1/chat/completions";
+        newLlmModelName = "";
+        newLlmApiKey = "";
+        detectLMStudioModels();
+        break;
+      case "ollama":
+        newLlmApiUrl = "http://localhost:11434/v1/chat/completions";
+        newLlmModelName = "";
+        newLlmApiKey = "";
+        detectOllamaModels();
+        break;
+      case "openrouter":
+        newLlmApiUrl = "https://openrouter.ai/api/v1/chat/completions";
+        newLlmModelName = "";
+        break;
+      case "openai":
+        newLlmApiUrl = "https://api.openai.com/v1/chat/completions";
+        newLlmModelName = "";
+        break;
+      case "gemini":
+        newLlmApiUrl = "https://generativelanguage.googleapis.com/v1beta/models/";
+        newLlmModelName = "";
+        break;
+    }
+  }
+
+  function selectDetectedModel(model: any) {
+    if (newLlmServiceType === "lmstudio") {
+      newLlmModelName = model.id;
+      newLlmName = `LM Studio - ${model.id}`;
+    } else if (newLlmServiceType === "ollama") {
+      newLlmModelName = model.name;
+      newLlmName = `Ollama - ${model.name}`;
+    }
   }
 
   // Execution Mode Management functions
@@ -1089,6 +1176,22 @@
           <div class="llm-form">
             <div class="form-grid">
               <div class="form-field">
+                <label for="llm-service-type">Type de provider</label>
+                <select
+                  id="llm-service-type"
+                  bind:value={newLlmServiceType}
+                  onchange={handleServiceTypeChange}
+                  class="text-input"
+                >
+                  <option value="openrouter">OpenRouter</option>
+                  <option value="openai">OpenAI</option>
+                  <option value="gemini">Google Gemini</option>
+                  <option value="lmstudio">LM Studio (Local)</option>
+                  <option value="ollama">Ollama (Local)</option>
+                </select>
+              </div>
+
+              <div class="form-field">
                 <label for="llm-name">Nom</label>
                 <input
                   id="llm-name"
@@ -1098,16 +1201,7 @@
                   class="text-input"
                 />
               </div>
-              <div class="form-field">
-                <label for="llm-model-name">Nom du modèle</label>
-                <input
-                  id="llm-model-name"
-                  type="text"
-                  bind:value={newLlmModelName}
-                  placeholder="Ex: gemini-2.0-flash-exp"
-                  class="text-input"
-                />
-              </div>
+
               <div class="form-field full-width">
                 <label for="llm-api-url">URL de l'API</label>
                 <input
@@ -1118,16 +1212,86 @@
                   class="text-input"
                 />
               </div>
-              <div class="form-field full-width">
-                <label for="llm-api-key">Clé API</label>
+
+              {#if newLlmServiceType === "lmstudio"}
+                <div class="form-field full-width">
+                  <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <label>Modèles LM Studio</label>
+                    <button class="icon-button" onclick={detectLMStudioModels} disabled={detectingModels} title="Détecter les modèles">
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                        <path d="M13 2L3 12M3 2L13 12" stroke="currentColor" stroke-width="2"/>
+                      </svg>
+                    </button>
+                  </div>
+                  {#if serviceStatus.lmstudio === false}
+                    <p style="color: var(--color-error); font-size: 12px; margin-top: 4px;">LM Studio n'est pas démarré</p>
+                  {:else if lmStudioModels.length > 0}
+                    <div class="detected-models">
+                      {#each lmStudioModels as model}
+                        <button
+                          class="detected-model-item {newLlmModelName === model.id ? 'selected' : ''}"
+                          onclick={() => selectDetectedModel(model)}
+                        >
+                          <span>{model.id}</span>
+                          {#if model.state === "loaded"}
+                            <span class="badge-loaded">Chargé</span>
+                          {/if}
+                        </button>
+                      {/each}
+                    </div>
+                  {/if}
+                </div>
+              {:else if newLlmServiceType === "ollama"}
+                <div class="form-field full-width">
+                  <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <label>Modèles Ollama</label>
+                    <button class="icon-button" onclick={detectOllamaModels} disabled={detectingModels} title="Détecter les modèles">
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                        <path d="M13 2L3 12M3 2L13 12" stroke="currentColor" stroke-width="2"/>
+                      </svg>
+                    </button>
+                  </div>
+                  {#if serviceStatus.ollama === false}
+                    <p style="color: var(--color-error); font-size: 12px; margin-top: 4px;">Ollama n'est pas démarré</p>
+                  {:else if ollamaModels.length > 0}
+                    <div class="detected-models">
+                      {#each ollamaModels as model}
+                        <button
+                          class="detected-model-item {newLlmModelName === model.name ? 'selected' : ''}"
+                          onclick={() => selectDetectedModel(model)}
+                        >
+                          <span>{model.name}</span>
+                          <span class="model-size-small">{(model.size / 1000000000).toFixed(1)} GB</span>
+                        </button>
+                      {/each}
+                    </div>
+                  {/if}
+                </div>
+              {/if}
+
+              <div class="form-field">
+                <label for="llm-model-name">Nom du modèle</label>
                 <input
-                  id="llm-api-key"
-                  type="password"
-                  bind:value={newLlmApiKey}
-                  placeholder="Votre clé API"
+                  id="llm-model-name"
+                  type="text"
+                  bind:value={newLlmModelName}
+                  placeholder="Ex: gemini-2.0-flash-exp"
                   class="text-input"
                 />
               </div>
+
+              {#if !["lmstudio", "ollama"].includes(newLlmServiceType)}
+                <div class="form-field full-width">
+                  <label for="llm-api-key">Clé API</label>
+                  <input
+                    id="llm-api-key"
+                    type="password"
+                    bind:value={newLlmApiKey}
+                    placeholder="Votre clé API"
+                    class="text-input"
+                  />
+                </div>
+              {/if}
             </div>
             <button class="modify-button" onclick={addLlmModel}>Ajouter</button>
           </div>
@@ -2195,5 +2359,56 @@
     background: #333333;
     color: #4FB094;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  }
+
+  /* Local LLM Detection Styles */
+  .detected-models {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 8px;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+
+  .detected-model-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 14px;
+    background: #202020;
+    border: 1px solid #333333;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-align: left;
+    width: 100%;
+    font-size: 13px;
+    color: #BDBDBD;
+  }
+
+  .detected-model-item:hover {
+    background: #252525;
+    border-color: #4FB094;
+  }
+
+  .detected-model-item.selected {
+    background: #1a3d32;
+    border-color: #4FB094;
+    color: #4FB094;
+  }
+
+  .badge-loaded {
+    background: #4FB094;
+    color: #141414;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  .model-size-small {
+    font-size: 11px;
+    color: #808080;
   }
 </style>
