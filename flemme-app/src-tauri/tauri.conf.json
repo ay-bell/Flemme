@@ -30,6 +30,18 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDg4N0VGQ0E2OEREODU1OEUKUldTT1ZkaU5wdngraUFBYk56OXhuOStDYjAzc0o3ZlNlUnlpNDNBUjZDb2IzWVNqM0RqMTBLZEoK",
+      "endpoints": [
+        "https://github.com/ay-bell/Flemme/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

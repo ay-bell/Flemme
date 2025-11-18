@@ -5,6 +5,7 @@
   import { Switch } from "$lib/components/ui/switch";
   import { Button } from "$lib/components/ui/button";
   import { Badge } from "$lib/components/ui/badge";
+  import UpdateChecker from "$lib/components/UpdateChecker.svelte";
 
   // Type definitions
   interface AppSettings {
@@ -914,6 +915,17 @@
         <img src="/icons/Mode.svg" alt="" class="nav-icon" />
         <span>Modes</span>
       </button>
+
+      <button
+        class="nav-item {activeTab === 'about' ? 'active' : ''}"
+        onclick={() => activeTab = 'about'}
+      >
+        <svg class="nav-icon" width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M10 6V6.01M10 9V14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <span>À propos</span>
+      </button>
     </nav>
 
     <!-- Active Mode Indicator -->
@@ -1514,6 +1526,21 @@
             {saveStatus}
           </p>
         {/if}
+      </div>
+    {:else if activeTab === 'about'}
+      <div class="content-section">
+        <h2 class="section-title">À propos</h2>
+
+        <div class="about-content">
+          <div class="app-header">
+            <h3 class="app-name">Flemme</h3>
+            <p class="app-description">
+              Application de transcription vocale avec traitement IA
+            </p>
+          </div>
+
+          <UpdateChecker />
+        </div>
       </div>
     {/if}
   </main>
@@ -2410,5 +2437,33 @@
   .model-size-small {
     font-size: 11px;
     color: #808080;
+  }
+
+  /* About Section */
+  .about-content {
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+  }
+
+  .app-header {
+    text-align: center;
+    padding: 24px;
+    background: linear-gradient(135deg, rgba(79, 176, 148, 0.1), rgba(79, 176, 148, 0.05));
+    border: 1px solid rgba(79, 176, 148, 0.2);
+    border-radius: 12px;
+  }
+
+  .app-name {
+    font-size: 32px;
+    font-weight: 700;
+    color: #4FB094;
+    margin: 0 0 8px 0;
+  }
+
+  .app-description {
+    font-size: 14px;
+    color: #8E8E93;
+    margin: 0;
   }
 </style>
