@@ -65,6 +65,14 @@ jobs:
         with:
           toolchain: stable
 
+      - name: Install CUDA Toolkit
+        uses: Jimver/cuda-toolkit@v0.2.16
+        id: cuda-toolkit
+        with:
+          cuda: '12.2.0'
+          method: 'network'
+          sub-packages: '["nvcc", "cudart"]'
+
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
@@ -80,6 +88,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          CUDA_PATH: ${{ steps.cuda-toolkit.outputs.CUDA_PATH }}
+          CUDA_ROOT: ${{ steps.cuda-toolkit.outputs.CUDA_PATH }}
         with:
           projectPath: flemme-app
           releaseId: ${{ needs.create-release.outputs.release_id }}
