@@ -110,7 +110,37 @@ jobs:
           "@
 
           $json | Out-File -FilePath latest.json -Encoding utf8
+          Write-Host "Generated latest.json:"
+          Get-Content latest.json
 
-          gh release upload "$version" latest.json --clobber
+          # Upload using GitHub API
+          $headers = @{
+            "Authorization" = "token ${{ secrets.GITHUB_TOKEN }}"
+            "Accept" = "application/vnd.github.v3+json"
+          }
+
+          # Get release info
+          $releaseUrl = "https://api.github.com/repos/ay-bell/Flemme/releases/tags/$version"
+          $release = Invoke-RestMethod -Uri $releaseUrl -Headers $headers -Method Get
+
+          # Check if latest.json already exists and delete it
+          $existingAsset = $release.assets | Where-Object { $_.name -eq "latest.json" }
+          if ($existingAsset) {
+            Write-Host "Deleting existing latest.json..."
+            Invoke-RestMethod -Uri $existingAsset.url -Headers $headers -Method Delete
+          }
+
+          # Upload new latest.json
+          $uploadUrl = $release.upload_url -replace '\{\?name,label\}', "?name=latest.json"
+          $fileBytes = [System.IO.File]::ReadAllBytes("$PWD/latest.json")
+
+          $uploadHeaders = @{
+            "Authorization" = "token ${{ secrets.GITHUB_TOKEN }}"
+            "Content-Type" = "application/json"
+          }
+
+          Write-Host "Uploading latest.json to $uploadUrl"
+          Invoke-RestMethod -Uri $uploadUrl -Headers $uploadHeaders -Method Post -Body $fileBytes
+          Write-Host "Successfully uploaded latest.json"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
