@@ -59,11 +59,18 @@ jobs:
         working-directory: flemme-app
         run: npm install
 
+      - name: Read signing key
+        id: read_key
+        shell: pwsh
+        run: |
+          $key = Get-Content "C:/Users/aymer/.tauri/flemme.key" -Raw
+          echo "SIGNING_KEY=$key" >> $env:GITHUB_OUTPUT
+
       - name: Build and Release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY_PATH: C:/Users/aymer/.tauri/flemme.key
+          TAURI_SIGNING_PRIVATE_KEY: ${{ steps.read_key.outputs.SIGNING_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: flemme_secure_password_2024
         with:
           projectPath: flemme-app
