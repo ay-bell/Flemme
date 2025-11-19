@@ -95,21 +95,22 @@ jobs:
           $versionNoV = $version -replace '^v', ''
           $pubDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 
-          $json = @"
-          {
-            "version": "$version",
-            "notes": "Nouvelle version disponible",
-            "pub_date": "$pubDate",
-            "platforms": {
-              "windows-x86_64": {
-                "signature": "",
-                "url": "https://github.com/ay-bell/Flemme/releases/download/$version/flemme-app_${versionNoV}_x64_en-US.msi.zip"
+          # Create JSON object properly
+          $jsonObj = @{
+            version = $version
+            notes = "Nouvelle version disponible"
+            pub_date = $pubDate
+            platforms = @{
+              "windows-x86_64" = @{
+                signature = ""
+                url = "https://github.com/ay-bell/Flemme/releases/download/$version/flemme-app_${versionNoV}_x64_en-US.msi.zip"
               }
             }
           }
-          "@
 
-          $json | Out-File -FilePath latest.json -Encoding utf8
+          # Convert to JSON without BOM
+          $json = $jsonObj | ConvertTo-Json -Depth 10
+          [System.IO.File]::WriteAllText("$PWD/latest.json", $json, [System.Text.UTF8Encoding]::new($false))
           Write-Host "Generated latest.json:"
           Get-Content latest.json
 
