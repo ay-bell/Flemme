@@ -61,10 +61,10 @@ jobs:
 
       - name: Read signing key
         id: read_key
-        shell: pwsh
+        shell: powershell
         run: |
           $key = Get-Content "C:/Users/aymer/.tauri/flemme.key" -Raw
-          echo "SIGNING_KEY=$key" >> $env:GITHUB_OUTPUT
+          "SIGNING_KEY=$key" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
       - name: Build and Release
         uses: tauri-apps/tauri-action@v0
