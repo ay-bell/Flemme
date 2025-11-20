@@ -77,6 +77,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ steps.read_key.outputs.SIGNING_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: flemme_secure_password_2024
+          CARGO_TARGET_DIR: "C:/Users/Aymeric BELLAVOINE/tmp_build"
         with:
           projectPath: flemme-app
           releaseId: ${{ needs.create-release.outputs.release_id }}
@@ -100,8 +101,8 @@ jobs:
           $versionNoV = $version -replace '^v', ''
           $pubDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 
-          # Find the signature file
-          $sigPath = Get-ChildItem -Path "flemme-app/src-tauri/target/release/bundle" -Filter "*.msi.zip.sig" -Recurse | Select-Object -First 1
+          # Find the signature file in the custom target directory
+          $sigPath = Get-ChildItem -Path "C:/Users/Aymeric BELLAVOINE/tmp_build/release/bundle" -Filter "*.msi.zip.sig" -Recurse | Select-Object -First 1
           
           if (-not $sigPath) {
             Write-Error "Signature file not found! Ensure the build produced an .msi.zip.sig file."
