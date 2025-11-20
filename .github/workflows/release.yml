@@ -55,6 +55,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Kill Node processes
+        if: runner.os == 'Windows'
+        run: taskkill /F /IM node.exe
+        continue-on-error: true
+
       - name: Install frontend dependencies
         working-directory: flemme-app
         run: npm install
@@ -95,14 +100,25 @@ jobs:
           $versionNoV = $version -replace '^v', ''
           $pubDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 
+          # Find the signature file
+          $sigPath = Get-ChildItem -Path "flemme-app/src-tauri/target/release/bundle" -Filter "*.msi.zip.sig" -Recurse | Select-Object -First 1
+          
+          if (-not $sigPath) {
+            Write-Error "Signature file not found! Ensure the build produced an .msi.zip.sig file."
+            exit 1
+          }
+          
+          $signature = Get-Content $sigPath.FullName
+          Write-Host "Found signature: $signature"
+
           # Create JSON manually in the exact format Tauri expects
           $json = "{`n"
-          $json += "  `"version`": `"$version`",`n"
+          $json += "  `"version`": `"$versionNoV`",`n"
           $json += "  `"notes`": `"Nouvelle version disponible`",`n"
           $json += "  `"pub_date`": `"$pubDate`",`n"
           $json += "  `"platforms`": {`n"
           $json += "    `"windows-x86_64`": {`n"
-          $json += "      `"signature`": `"`",`n"
+          $json += "      `"signature`": `"$signature`",`n"
           $json += "      `"url`": `"https://github.com/ay-bell/Flemme/releases/download/$version/flemme-app_${versionNoV}_x64_en-US.msi.zip`"`n"
           $json += "    }`n"
           $json += "  }`n"

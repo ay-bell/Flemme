@@ -1,0 +1,11 @@
+﻿{
+  "agentId": 22,
+  "agentName": "VIVOPTIM47",
+  "poolId": 1,
+  "poolName": "Default",
+  "serverUrl": "https://pipelinesghubeus3.actions.githubusercontent.com/75uioFxedNtdSdzAooiufut0zY8lKfa1WSLg70UG6ou0H3BYWe/",
+  "gitHubUrl": "https://github.com/ay-bell/Flemme",
+  "workFolder": "_work",
+  "useV2Flow": true,
+  "serverUrlV2": "https://broker.actions.githubusercontent.com/"
+}
