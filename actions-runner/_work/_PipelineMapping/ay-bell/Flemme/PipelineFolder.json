@@ -1,0 +1,12 @@
+﻿{
+  "repositoryName": "ay-bell/Flemme",
+  "pipelineDirectory": "Flemme",
+  "workspaceDirectory": "Flemme\\Flemme",
+  "repositories": {
+    "ay-bell/Flemme": {
+      "repositoryPath": "Flemme\\Flemme",
+      "lastRunOn": "11/20/2025 14:57:16 +01:00"
+    }
+  },
+  "lastRunOn": "11/20/2025 14:57:16 +01:00"
+}

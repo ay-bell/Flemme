@@ -35,7 +35,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDg4N0VGQ0E2OEREODU1OEUKUldTT1ZkaU5wdngraUFBYk56OXhuOStDYjAzc0o3ZlNlUnlpNDNBUjZDb2IzWVNqM0RqMTBLZEoK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEI2NTk2RUQ5QTVDNDlDMEYKUldRUG5NU2wyVzVadG55Y1R3TndqaXF4RTlSU01sai9nR3c1M0xNRFhCaW9sQmF2RlhQRnMwaHAK",
       "endpoints": [
         "https://github.com/ay-bell/Flemme/releases/latest/download/latest.json"
       ],
