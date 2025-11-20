@@ -42,6 +42,11 @@
       "windows": {
         "installMode": "passive"
       }
+    },
+    "http": {
+      "scope": [
+        "https://github.com/**"
+      ]
     }
   }
 }

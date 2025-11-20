@@ -3,6 +3,7 @@
   import { check } from '@tauri-apps/plugin-updater';
   import { relaunch } from '@tauri-apps/plugin-process';
   import { ask } from '@tauri-apps/plugin-dialog';
+  import { getVersion } from '@tauri-apps/api/app';
 
   let checkingForUpdate = $state(false);
   let updateAvailable = $state(false);
@@ -12,7 +13,7 @@
   let downloadSize = $state({ current: 0, total: 0 });
   let installing = $state(false);
   let updateError = $state("");
-  let currentVersion = $state("0.1.0");
+  let currentVersion = $state("");
 
   async function checkForUpdates(silent: boolean = false) {
     if (checkingForUpdate) return;
@@ -127,7 +128,10 @@
     return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
   }
 
-  onMount(() => {
+  onMount(async () => {
+    // Load current version
+    currentVersion = await getVersion();
+
     // Check for updates on mount (silent)
     checkForUpdates(true);
   });

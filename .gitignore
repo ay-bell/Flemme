@@ -1,0 +1,5 @@
+# Context directory (local documentation, not to be pushed)
+Context/
+
+# Local test files
+latest.json
