@@ -3,3 +3,11 @@ Context/
 
 # Local test files
 latest.json
+
+# Environment variables (contains sensitive keys)
+**/.env
+.env
+
+# Signing keys backup (contains password and private key)
+**/keys.txt
+keys.txt

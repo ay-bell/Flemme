@@ -102,6 +102,7 @@
   let newModeSystemPrompt = $state("");
   let newModeLlmId = $state<string | null>(null);
   let showAddModeForm = $state(false);
+  let showWelcomeModal = $state(false);
 
   const languages = [
     { value: "fr", label: "Français" },
@@ -157,11 +158,19 @@
         console.error("Failed to load custom words:", error);
       }
 
-      // Load available models
       try {
         const models = await invoke<ModelInfo[]>("list_available_models");
         availableModels = models;
         console.log("Available models loaded:", availableModels);
+
+        // Check if any model is downloaded
+        const hasDownloadedModel = models.some(m => m.is_downloaded);
+        if (!hasDownloadedModel) {
+          console.log("No models downloaded, showing welcome modal");
+          showWelcomeModal = true;
+          activeTab = 'modeles';
+          modelsSubTab = 'vocaux';
+        }
       } catch (error) {
         console.error("Failed to load available models:", error);
       }
@@ -1544,6 +1553,80 @@
       </div>
     {/if}
   </main>
+
+  {#if showWelcomeModal}
+    <div class="modal-overlay">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 class="modal-title">Bienvenue sur Flemme !</h2>
+          <p class="modal-subtitle">Pour commencer, veuillez télécharger un modèle de reconnaissance vocale.</p>
+        </div>
+        
+        <div class="modal-body">
+          <div class="models-list compact">
+            {#each availableModels as model}
+              {@const modelLabel = getModelLabel(model.name)}
+              {@const modelSize = formatFileSize(model.size_mb)}
+              {@const isDownloading = downloadingModel === model.name}
+              {@const progress = downloadProgress[model.name] || 0}
+              {@const isActive = selectedModel === model.name}
+              
+              <div class="model-item {isActive ? 'active' : ''}">
+                <div class="model-info">
+                  <div class="model-header">
+                    <div class="model-name-status">
+                      <span class="model-name">{modelLabel}</span>
+                      {#if model.is_downloaded}
+                        <Badge variant="default">Installé</Badge>
+                      {:else if isDownloading}
+                        <Badge variant="secondary">Téléchargement...</Badge>
+                      {/if}
+                    </div>
+                    <span class="model-size">{modelSize}</span>
+                  </div>
+
+                  {#if isDownloading}
+                    <div class="progress-bar">
+                      <div class="progress-fill" style="width: {progress}%"></div>
+                      <span class="progress-text">{Math.round(progress)}%</span>
+                    </div>
+                  {/if}
+                </div>
+
+                <div class="model-actions">
+                  {#if !model.is_downloaded && !isDownloading}
+                    <button 
+                      class="icon-button" 
+                      aria-label="Télécharger le modèle {modelLabel}"
+                      onclick={() => downloadModel(model.name, model.download_url)}
+                    >
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                        <path d="M8 2V12M8 12L5 9M8 12L11 9M2 14H14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>
+                    </button>
+                  {:else if model.is_downloaded}
+                    <div class="check-icon">
+                      <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                        <path d="M16.6666 5L7.49992 14.1667L3.33325 10" stroke="#4FB094" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>
+                    </div>
+                  {/if}
+                </div>
+              </div>
+            {/each}
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          {#if availableModels.some(m => m.is_downloaded)}
+            <Button onclick={() => showWelcomeModal = false} class="w-full">Commencer à utiliser Flemme</Button>
+          {:else}
+            <p class="modal-hint">Veuillez télécharger au moins un modèle pour continuer.</p>
+          {/if}
+        </div>
+      </div>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -2465,5 +2548,86 @@
     font-size: 14px;
     color: #8E8E93;
     margin: 0;
+  }
+  /* Modal Styles */
+  .modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+    backdrop-filter: blur(4px);
+  }
+
+  .modal-content {
+    background: #202020;
+    border-radius: 12px;
+    width: 90%;
+    max-width: 600px;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    border: 1px solid #333;
+  }
+
+  .modal-header {
+    padding: 24px;
+    border-bottom: 1px solid #333;
+    text-align: center;
+  }
+
+  .modal-title {
+    font-size: 24px;
+    font-weight: 600;
+    color: #fff;
+    margin: 0 0 8px 0;
+  }
+
+  .modal-subtitle {
+    color: #888;
+    font-size: 14px;
+    margin: 0;
+  }
+
+  .modal-body {
+    padding: 24px;
+    overflow-y: auto;
+  }
+
+  .modal-footer {
+    padding: 24px;
+    border-top: 1px solid #333;
+    display: flex;
+    justify-content: center;
+  }
+
+  .modal-hint {
+    color: #888;
+    font-size: 12px;
+    font-style: italic;
+  }
+
+  .models-list.compact {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .models-list.compact .model-item {
+    padding: 12px;
+  }
+
+  .check-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
   }
 </style>
