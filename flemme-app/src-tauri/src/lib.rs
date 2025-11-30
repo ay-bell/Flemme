@@ -1494,6 +1494,19 @@ pub fn run() {
                         }
                     })
                     .build(app)?;
+
+                // Handle main window close event - hide instead of destroy
+                if let Some(main_window) = app.get_webview_window("main") {
+                    let window_clone = main_window.clone();
+                    main_window.on_window_event(move |event| {
+                        if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                            // Prevent the window from closing
+                            api.prevent_close();
+                            // Hide the window instead
+                            let _ = window_clone.hide();
+                        }
+                    });
+                }
             }
 
             Ok(())
