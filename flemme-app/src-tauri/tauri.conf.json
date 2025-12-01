@@ -24,7 +24,7 @@
   "bundle": {
     "active": true,
     "publisher": "Aymeric Bellavoine",
-    "targets": ["nsis"],
+    "targets": "all",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -32,15 +32,7 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "createUpdaterArtifacts": true,
-    "windows": {
-      "nsis": {
-        "installerIcon": "icons/icon.ico",
-        "installMode": "perUser",
-        "languages": ["French"],
-        "displayLanguageSelector": false
-      }
-    }
+    "createUpdaterArtifacts": true
   },
   "plugins": {
     "updater": {

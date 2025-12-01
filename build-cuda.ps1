@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 $version = "0.1.4"
 
-Write-Host "Building CUDA version with NSIS installer..."
+Write-Host "Building CUDA version..."
 
 $outputDir = ".\release-builds\v$version"
 if (-not (Test-Path $outputDir)) {
@@ -10,20 +10,20 @@ if (-not (Test-Path $outputDir)) {
 
 Set-Location flemme-app
 
-# Build with Tauri CLI (creates NSIS installer)
+# Build with Tauri CLI (creates MSI installer)
 npm run tauri build -- --features cuda
 
-# Find and copy the NSIS installer
-$nsisInstaller = Get-ChildItem -Path "src-tauri\target\release\bundle\nsis\" -Filter "*.exe" | Select-Object -First 1
-if ($nsisInstaller) {
-    $newName = "flemme-app-cuda-v$version-setup.exe"
-    Copy-Item $nsisInstaller.FullName "..\$outputDir\$newName"
+# Find and copy the MSI installer
+$msiInstaller = Get-ChildItem -Path "src-tauri\target\release\bundle\msi\" -Filter "*.msi" | Select-Object -First 1
+if ($msiInstaller) {
+    $newName = "flemme-app-cuda-v$version-setup.msi"
+    Copy-Item $msiInstaller.FullName "..\$outputDir\$newName"
     Write-Host "Done: $newName"
 
     $fileInfo = Get-Item "..\$outputDir\$newName"
     Write-Host "Size: $([math]::Round($fileInfo.Length / 1MB, 2)) MB"
 } else {
-    Write-Error "NSIS installer not found"
+    Write-Error "MSI installer not found"
 }
 
 Set-Location ..
