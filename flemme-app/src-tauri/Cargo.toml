@@ -52,14 +52,16 @@ uuid = { version = "1", features = ["v4"] }
 tauri-plugin-global-shortcut = "2"
 
 [profile.release]
-opt-level = 2
-lto = false
-codegen-units = 16
+opt-level = 3
+lto = "thin"
+codegen-units = 1
 debug = false
 strip = true
 debug-assertions = false
 overflow-checks = false
+panic = "abort"
 
 [profile.dev]
 opt-level = 2
+
 

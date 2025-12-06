@@ -10,8 +10,11 @@ if (-not (Test-Path $outputDir)) {
 
 Set-Location flemme-app
 
-# Build with Tauri CLI (creates MSI installer)
-npm run tauri build -- --features cuda
+# Build frontend
+npm run build
+
+# Build with Tauri CLI (CUDA is default)
+npm run tauri build
 
 # Find and copy the MSI installer
 $msiInstaller = Get-ChildItem -Path "src-tauri\target\release\bundle\msi\" -Filter "*.msi" | Select-Object -First 1

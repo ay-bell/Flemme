@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 $version = "0.1.4"
 
-Write-Host "Building CPU version..."
+Write-Host "Building CPU version (no CUDA)..."
 
 $outputDir = ".\release-builds\v$version"
 if (-not (Test-Path $outputDir)) {
@@ -13,20 +13,35 @@ Set-Location flemme-app
 # Clean previous build
 Remove-Item -Path "src-tauri\target\release" -Recurse -Force -ErrorAction SilentlyContinue
 
-# Build with Tauri CLI (creates MSI installer)
-npm run tauri build -- --no-default-features
+# Temporarily modify Cargo.toml to disable CUDA by default
+$cargoToml = Get-Content "src-tauri\Cargo.toml" -Raw
+$originalCargoToml = $cargoToml
+$cargoToml = $cargoToml -replace 'default = \["cuda"\]', 'default = []'
+Set-Content "src-tauri\Cargo.toml" -Value $cargoToml
 
-# Find and copy the MSI installer
-$msiInstaller = Get-ChildItem -Path "src-tauri\target\release\bundle\msi\" -Filter "*.msi" | Select-Object -First 1
-if ($msiInstaller) {
-    $newName = "flemme-app-cpu-v$version-setup.msi"
-    Copy-Item $msiInstaller.FullName "..\$outputDir\$newName"
-    Write-Host "Done: $newName"
+try {
+    # Build frontend
+    npm run build
 
-    $fileInfo = Get-Item "..\$outputDir\$newName"
-    Write-Host "Size: $([math]::Round($fileInfo.Length / 1MB, 2)) MB"
-} else {
-    Write-Error "MSI installer not found"
+    # Build with Tauri CLI (no CUDA since we changed default)
+    npm run tauri build
+
+    # Find and copy the MSI installer
+    $msiInstaller = Get-ChildItem -Path "src-tauri\target\release\bundle\msi\" -Filter "*.msi" | Select-Object -First 1
+    if ($msiInstaller) {
+        $newName = "flemme-app-cpu-v$version-setup.msi"
+        Copy-Item $msiInstaller.FullName "..\$outputDir\$newName"
+        Write-Host "Done: $newName"
+
+        $fileInfo = Get-Item "..\$outputDir\$newName"
+        Write-Host "Size: $([math]::Round($fileInfo.Length / 1MB, 2)) MB"
+    } else {
+        Write-Error "MSI installer not found"
+    }
+} finally {
+    # Restore original Cargo.toml
+    Set-Content "src-tauri\Cargo.toml" -Value $originalCargoToml
+    Write-Host "Cargo.toml restored"
 }
 
 Set-Location ..

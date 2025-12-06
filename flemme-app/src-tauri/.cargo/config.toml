@@ -1,0 +1,15 @@
+[build]
+# Enable native CPU optimizations (AVX, AVX2, SSE, etc.)
+rustflags = [
+    "-C", "target-cpu=native",
+    "-C", "opt-level=3",
+]
+
+[target.x86_64-pc-windows-msvc]
+# Windows-specific optimizations
+rustflags = [
+    "-C", "target-cpu=native",
+    "-C", "target-feature=+avx,+avx2,+fma,+sse4.2",
+    "-C", "opt-level=3",
+    "-C", "link-arg=/STACK:8388608",  # 8MB stack size for deep recursion
+]
