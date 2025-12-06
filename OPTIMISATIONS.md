@@ -202,12 +202,20 @@ lto = "thin"
 target-cpu = "x86-64-v2"  # Compatibilité 2008+ (large)
 ```
 
+### Configuration actuelle
+
+**Utiliser `target-cpu=x86-64-v3`** ✅ Bon compromis perf/compatibilité
+- Compatible PC 2013+ (Intel Haswell, AMD Excavator, tous les Ryzen)
+- AVX2, FMA, BMI2 activés
+- ~95% des PC modernes supportés
+- Perte ~5-10% vs `native` mais binaire distributable
+
 ### Pour usage personnel (maximum perf)
 
-**Utiliser `target-cpu=native`** ✅ Configuration actuelle
+**Alternative `target-cpu=native`**
 - Optimisé pour VOTRE CPU spécifique
-- +10-15% de performance vs x86-64-v3
-- Non portable sur autres CPU
+- +5-10% de performance vs x86-64-v3
+- ⚠️ Non portable sur autres CPU
 
 ## Ressources
 

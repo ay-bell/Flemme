@@ -1,15 +1,17 @@
 [build]
-# Enable native CPU optimizations (AVX, AVX2, SSE, etc.)
+# x86-64-v3: AVX2, FMA, BMI2 (Intel Haswell 2013+, AMD Excavator 2015+)
+# Compatible avec la majorité des PC modernes tout en gardant de bonnes performances
 rustflags = [
-    "-C", "target-cpu=native",
+    "-C", "target-cpu=x86-64-v3",
     "-C", "opt-level=3",
 ]
 
 [target.x86_64-pc-windows-msvc]
-# Windows-specific optimizations
+# Windows-specific optimizations with x86-64-v3
+# Compatible: Intel Core 4th gen+ (2013+), AMD Ryzen toutes gen
 rustflags = [
-    "-C", "target-cpu=native",
-    "-C", "target-feature=+avx,+avx2,+fma,+sse4.2",
+    "-C", "target-cpu=x86-64-v3",
+    "-C", "target-feature=+avx,+avx2,+fma,+bmi2",
     "-C", "opt-level=3",
     "-C", "link-arg=/STACK:8388608",  # 8MB stack size for deep recursion
 ]
